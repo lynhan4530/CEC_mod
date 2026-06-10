@@ -1,0 +1,10 @@
+G:\Project\CEC_mod\CecMod\obj\Release\CecMod.csproj.AssemblyReference.cache
+G:\Project\CEC_mod\CecMod\obj\Release\CecMod.GeneratedMSBuildEditorConfig.editorconfig
+G:\Project\CEC_mod\CecMod\obj\Release\CecMod.AssemblyInfoInputs.cache
+G:\Project\CEC_mod\CecMod\obj\Release\CecMod.AssemblyInfo.cs
+G:\Project\CEC_mod\CecMod\obj\Release\CecMod.csproj.CoreCompileInputs.cache
+G:\Project\CEC_mod\CecMod\bin\Release\CecMod.deps.json
+G:\Project\CEC_mod\CecMod\bin\Release\CecMod.dll
+G:\Project\CEC_mod\CecMod\bin\Release\CecMod.pdb
+G:\Project\CEC_mod\CecMod\obj\Release\CecMod.dll
+G:\Project\CEC_mod\CecMod\obj\Release\CecMod.pdb
