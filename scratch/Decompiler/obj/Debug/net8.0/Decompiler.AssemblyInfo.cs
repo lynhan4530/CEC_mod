@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Decompiler")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cb11a32cfcb520989796b78fa05d8e8e4f6b3834")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+512f9d4b2b9bbe681b6e4f7a98114b78c18cfa15")]
 [assembly: System.Reflection.AssemblyProductAttribute("Decompiler")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Decompiler")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

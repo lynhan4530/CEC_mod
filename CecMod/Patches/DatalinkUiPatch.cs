@@ -1,3 +1,4 @@
+using System;
 using HarmonyLib;
 using SeaPower;
 using SeapowerUI.ViewModels;
@@ -5,43 +6,48 @@ using SeapowerUI.ViewModels;
 namespace CecMod.Patches
 {
     /// <summary>
-    /// Patch 4 (UI datalink display). The missile-control panel shows the launching ship's name. When
-    /// a consort is actually guiding (launch-time CEC or after a handoff), rewrite it to
-    /// "launcher -> guiding ship" so the panel reflects who currently holds the missile, updating live
-    /// as handoffs occur.
+    /// Bottom-bar UI indicator showing when a missile's guidance has been handed off
+    /// to a CEC consort or AWACS (<c>Launcher -&gt; Guider</c>).
+    /// In Sea Power 0.8.7, the datalink status string is built by
+    /// <see cref="ObjectMissileControlViewModel"/>.<c>GoodConnection(Missile)</c>.
     /// </summary>
-    [HarmonyPatch(typeof(ObjectMissileControlViewModel))]
+    [HarmonyPatch(typeof(ObjectMissileControlViewModel), "GoodConnection")]
     internal static class DatalinkUiPatch
     {
-        [HarmonyPatch("GoodConnection")]
-        [HarmonyPostfix]
-        private static void GoodConnectionPostfix(Missile m, ref string __result)
+        private static void Postfix(Missile m, ref string __result)
         {
-            // GoodConnection substitutes ${ParentName} with _launchPlatform.getName().
-            __result = InjectGuider(m, __result, m._launchPlatform?.getName());
-        }
+            try
+            {
+                if (m == null || string.IsNullOrEmpty(__result))
+                    return;
 
-        [HarmonyPatch("BadConnection")]
-        [HarmonyPostfix]
-        private static void BadConnectionPostfix(Missile m, ref string __result)
-        {
-            // Bad/LostConnection substitute ${ParentName} with _launchPlatform.Name.Value.
-            __result = InjectGuider(m, __result, m._launchPlatform?.Name.Value);
-        }
+                ObjectBase guider = m._guidingRadarSystem?._baseObject;
+                if (guider == null)
+                    return;
 
-        [HarmonyPatch("LostConnection")]
-        [HarmonyPostfix]
-        private static void LostConnectionPostfix(Missile m, ref string __result)
-        {
-            __result = InjectGuider(m, __result, m._launchPlatform?.Name.Value);
-        }
+                ObjectBase launcher = m._launchPlatform;
+                if (launcher == guider)
+                    return;
 
-        private static string InjectGuider(Missile m, string result, string launcherName)
-        {
-            if (string.IsNullOrEmpty(result) || string.IsNullOrEmpty(launcherName)) return result;
-            var guider = m._guidingRadarSystem?._baseObject;
-            if (guider == null || m._launchPlatform == null || guider == m._launchPlatform) return result;
-            return result.Replace(launcherName, launcherName + " -> " + guider.getName());
+                string guiderName = guider.getName();
+                if (string.IsNullOrEmpty(guiderName))
+                    return;
+
+                string launcherName = launcher != null ? launcher.getName() : null;
+                if (!string.IsNullOrEmpty(launcherName) && __result.Contains(launcherName))
+                {
+                    __result = __result.Replace(launcherName, $"{launcherName} -> {guiderName}");
+                }
+                else if (__result.Contains("Nibiru"))
+                {
+                    string label = !string.IsNullOrEmpty(launcherName) ? launcherName : "Sunk Launcher";
+                    __result = __result.Replace("Nibiru", $"{label} -> {guiderName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] DatalinkUiPatch exception: {ex}");
+            }
         }
     }
 }

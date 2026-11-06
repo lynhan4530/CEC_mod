@@ -1,51 +1,289 @@
+using System;
+using System.Collections.Generic;
 using HarmonyLib;
 using SeaPower;
 
 namespace CecMod.Patches
 {
     /// <summary>
-    /// Patch 1 (launch-time CEC). The engine only runs external-guidance search for land SAMs
-    /// (the body bails when _externalGuidingSystems.Count == 0). For vessel launchers we instead run
-    /// a task-force-wide scan that injects qualifying consort radars into the launcher's associated
-    /// sensors, so the stock activateGuidingSystem()/FCR checks naturally pick a consort illuminator.
-    /// Land units keep vanilla behavior.
+    /// Replaces and extends the vanilla <see cref="WeaponSystem.CheckExternalRadarGuidance"/>
+    /// stub so any CEC-capable launcher (Vessel or Aircraft) can draw on compatible
+    /// consort FCRs and AWACS datalink radars across all 4 doctrinal networks,
+    /// including OTH and EMCON (Launch-on-Remote / Engage-on-Remote) engagements.
     /// </summary>
-    [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.CheckExternalRadarGuidance))]
+    [HarmonyPatch]
     internal static class LaunchTimeCecPatch
     {
-        // Reuse the engine's own throttle field (unused for ships, since vanilla returns before it).
-        private static readonly AccessTools.FieldRef<WeaponSystem, float> LastSearchTime =
-            AccessTools.FieldRefAccess<WeaponSystem, float>("_lastSearchForSensorTime");
+        private const double SearchCadenceSeconds = 5.0;
 
-        private static bool Prefix(WeaponSystem __instance)
+        private static readonly AccessTools.FieldRef<WeaponSystem, float> HorizonRangeRef =
+            AccessTools.FieldRefAccess<WeaponSystem, float>("_horizonRange");
+
+        /// <summary>
+        /// Replaces vanilla <see cref="WeaponSystem.CheckExternalRadarGuidance"/>.
+        /// Uses <see cref="GameTime.missionElapsedTime"/> and <see cref="WeaponSystem._lastSearchForSensorTime"/>
+        /// (<c>double</c> in 0.8.7) to throttle consort/AWACS injection to once every 5s.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.CheckExternalRadarGuidance))]
+        [HarmonyPrefix]
+        private static bool CheckExternalRadarGuidance_Prefix(WeaponSystem __instance)
         {
-            if (!(__instance._baseObject is Vessel))
-                return true; // land SAM trucks etc. -> vanilla external-guidance search
+            try
+            {
+                if (__instance == null || __instance._vwp == null)
+                    return false;
 
-            // Skip CEC while one of the launcher's own sensors is free to guide.
-            if (HasFreeLocalSensor(__instance))
-                return false;
+                ObjectBase self = __instance._baseObject;
+                if (!(self is Vessel) && !(self is Aircraft))
+                    return false;
 
-            // Throttle to the engine's ~30s external-search cadence.
-            ref float next = ref LastSearchTime.Invoke(__instance);
-            if (GameTime.time <= next)
-                return false;
-            next = GameTime.time + 30f;
+                double now = GameTime.missionElapsedTime;
+                if (now < __instance._lastSearchForSensorTime)
+                    return false;
+                __instance._lastSearchForSensorTime = now + SearchCadenceSeconds;
 
-            CecCapability.RefreshConsortRadars(__instance);
-            return false; // CEC handled; the vanilla body would no-op for ships anyway
+                CecCapability.RefreshConsortRadars(__instance);
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] CheckExternalRadarGuidance_Prefix exception: {ex}");
+            }
+
+            // Skip vanilla implementation (which does dangerous _associatedSensors.Clear()).
+            return false;
         }
 
-        private static bool HasFreeLocalSensor(WeaponSystem ws)
+        /// <summary>
+        /// In <see cref="WeaponSystemLauncher.OnUpdate"/>, <c>activatePreLaunchGuidance</c> runs
+        /// BEFORE <c>CheckExternalRadarGuidance</c>. Ensure consort radars are populated first,
+        /// and record whether local radars were intentionally off (EMCON) when remote coverage exists.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystemLauncher), nameof(WeaponSystemLauncher.activatePreLaunchGuidance))]
+        [HarmonyPrefix]
+        private static void ActivatePreLaunchGuidance_Prefix(
+            WeaponSystemLauncher __instance,
+            ObjectBase targetObject,
+            out List<SensorSystemRadar> __state)
         {
-            var associated = ws._vwp?._associatedSensors;
-            if (associated == null) return false;
-            foreach (var s in associated)
+            __state = null;
+            try
             {
-                if (s != null && !s.Inoperable.Value && !s._isGuiding && s._baseObject == ws._baseObject)
-                    return true;
+                if (__instance == null || targetObject == null || __instance._vwp == null)
+                    return;
+
+                ObjectBase self = __instance._baseObject;
+                if (self == null)
+                    return;
+
+                double now = GameTime.missionElapsedTime;
+                if (now >= __instance._lastSearchForSensorTime)
+                {
+                    __instance._lastSearchForSensorTime = now + SearchCadenceSeconds;
+                    CecCapability.RefreshConsortRadars(__instance);
+                }
+
+                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                if (ap != null
+                    && CecCapability.IsPlatformInAirRadarEmcon(self)
+                    && CecCapability.HasRemoteFcrCoverage(self, ap, targetObject))
+                {
+                    var offLocalRadars = new List<SensorSystemRadar>();
+                    foreach (SensorSystem s in __instance._vwp._associatedSensors)
+                    {
+                        if (s is SensorSystemRadar radar && radar._baseObject == self && !radar.IsOn.Value)
+                            offLocalRadars.Add(radar);
+                    }
+                    if (offLocalRadars.Count > 0)
+                        __state = offLocalRadars;
+                }
             }
-            return false;
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidance_Prefix exception: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Prevents local mast horizon (<c>_horizonRange</c>) from clamping
+        /// <c>_currentMaxLaunchRange</c> during OTH remote engagements, and preserves EMCON
+        /// if a remote consort/AWACS radar is already guiding.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystemLauncher), nameof(WeaponSystemLauncher.activatePreLaunchGuidance))]
+        [HarmonyPostfix]
+        private static void ActivatePreLaunchGuidance_Postfix(
+            WeaponSystemLauncher __instance,
+            ObjectBase targetObject,
+            List<SensorSystemRadar> __state)
+        {
+            try
+            {
+                if (__instance == null || targetObject == null)
+                    return;
+
+                ObjectBase self = __instance._baseObject;
+                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+
+                if (self != null && ap != null && CecCapability.HasRemoteFcrCoverage(self, ap, targetObject))
+                {
+                    // Do not clamp _currentMaxLaunchRange to the firing ship's local radar horizon
+                    // when a remote CEC/AWACS unit has radar LOS to the target.
+                    HorizonRangeRef(__instance) = 0f;
+                }
+
+                if (__state != null)
+                {
+                    foreach (SensorSystemRadar r in __state)
+                    {
+                        if (r != null && r.IsOn.Value && self?._sensorsToTurnOff != null && self._sensorsToTurnOff.Contains(r))
+                        {
+                            r.Disable(allowMessage: false);
+                            self._sensorsToTurnOff.Remove(r);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidance_Postfix exception: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Ensures <c>WeaponSystem.CheckTargetIsDetectableByFCR</c> checks
+        /// <see cref="SensorSystem.CanGuideAmmo"/> on each associated radar, so a synthetic
+        /// AWACS datalink radar in <c>_associatedSensors</c> only satisfies FCR checks for
+        /// weapons it can actually guide (e.g. ARH+MCC like SM-6, not SARH like SM-2MR).
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystem), "CheckTargetIsDetectableByFCR")]
+        [HarmonyPrefix]
+        private static bool CheckTargetIsDetectableByFCR_Prefix(
+            WeaponSystem __instance,
+            ObjectBase.SensorRangeOptions options,
+            ref bool __result)
+        {
+            try
+            {
+                if (__instance == null || __instance._vwp == null || __instance._targetObject == null)
+                    return true;
+
+                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                __result = false;
+                foreach (SensorSystem associatedSensor in __instance._vwp._associatedSensors)
+                {
+                    if (associatedSensor is SensorSystemRadar radar
+                        && (ap == null || radar.CanGuideAmmo(ap))
+                        && radar.HasFreeTargetChannels(__instance._targetObject)
+                        && radar.HasFreeWeaponChannels()
+                        && __instance.CheckTargetIsDetectableByRadar(radar, __instance._targetObject, options))
+                    {
+                        __result = true;
+                        break;
+                    }
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] CheckTargetIsDetectableByFCR_Prefix exception: {ex}");
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// When a missile spawns and runs <c>WeaponBase.ActivateNonLaserGuidanceSystem</c>,
+        /// vanilla iterates <c>_associatedSensors</c> in order (local sensors first) without
+        /// checking radar LOS to the target or EMCON state. If a local radar was chosen that
+        /// cannot see the OTH target (or was only auto-enabled from EMCON while a remote CEC
+        /// radar is already tracking the target), rebind immediately to the best remote CEC radar.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponBase), "ActivateNonLaserGuidanceSystem")]
+        [HarmonyPostfix]
+        private static void ActivateNonLaserGuidanceSystem_Postfix(WeaponBase __instance)
+        {
+            try
+            {
+                if (!(__instance is Missile m))
+                    return;
+
+                ObjectBase target = m.CurrentIntendedTargetObject;
+                if (target == null || m._ap == null || m._weaponSystem?._vwp?._associatedSensors == null)
+                    return;
+
+                SensorSystemRadar current = m._guidingRadarSystem;
+                ObjectBase launcher = m._launchPlatform;
+
+                bool currentIsLocal = current != null && current._baseObject == launcher;
+                bool currentCanSee = current != null
+                    && current.CanGuideAmmo(m._ap)
+                    && CecCapability.RadarCanSee(current, target);
+                bool currentWasAutoEnabledFromEmcon = currentIsLocal
+                    && launcher?._sensorsToTurnOff != null
+                    && launcher._sensorsToTurnOff.Contains(current);
+
+                if (current != null && currentCanSee && !currentWasAutoEnabledFromEmcon)
+                    return;
+
+                SensorSystemRadar bestRemote = null;
+                float bestDistSq = float.MaxValue;
+
+                foreach (SensorSystem s in m._weaponSystem._vwp._associatedSensors)
+                {
+                    if (!(s is SensorSystemRadar candidate) || candidate == current)
+                        continue;
+                    if (!candidate.IsOn.Value || candidate.IsDestroyed || candidate.Inoperable.Value)
+                        continue;
+                    if (!candidate.CanGuideAmmo(m._ap))
+                        continue;
+                    if (!candidate.HasFreeTargetChannels(target) || !candidate.HasFreeWeaponChannels())
+                        continue;
+                    if (!CecCapability.RadarCanSee(candidate, target))
+                        continue;
+
+                    float distSq = (candidate._baseObject.transform.position - target.transform.position).sqrMagnitude;
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        bestRemote = candidate;
+                    }
+                }
+
+                if (bestRemote == null)
+                    bestRemote = CecCapability.FindHandoffRadar(m);
+
+                if (bestRemote == null)
+                    return;
+
+                if (!bestRemote.IsAimedAtTarget(target))
+                    bestRemote.TryToAddTarget(target);
+                if (!bestRemote.TryToAddWeapon(m))
+                    return;
+
+                if (current != null)
+                {
+                    current.FreeChannels(target, m);
+                    if (currentWasAutoEnabledFromEmcon && !current.isBusy())
+                    {
+                        current.Disable(allowMessage: false);
+                        launcher._sensorsToTurnOff.Remove(current);
+                    }
+                }
+
+                m._guidingRadarSystem = bestRemote;
+                bestRemote._isGuiding = true;
+                bestRemote._restPositionReached = false;
+                bestRemote._preLaunchTargetObject = null;
+                m._seeker?.setGuidingSystem(bestRemote);
+                m.ConnectionLost.Value = false;
+                m.ConnectionLostForever.Value = false;
+
+                CecPlugin.Log.LogInfo(
+                    $"[CEC] Launch-on-Remote: '{m.getObjectIniName()}' from '{launcher?.getName() ?? "?"}' bound directly to " +
+                    $"'{bestRemote._baseObject?.getName() ?? "?"}' ({bestRemote._systemName}).");
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] ActivateNonLaserGuidanceSystem_Postfix exception: {ex}");
+            }
         }
     }
 }

@@ -6,12 +6,13 @@
     <RootNamespace>CecMod</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
     <ImplicitUsings>disable</ImplicitUsings>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>portable</DebugType>
     <!-- Game/BepInEx locations on this machine (see CLAUDE.md). Override on the CLI with
          -p:GameDir=... if the game lives elsewhere. -->
-    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\Sea Power</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">G:\Program Files (x86)\Steam\steamapps\common\Sea Power</GameDir>
     <ManagedDir>$(GameDir)\Sea Power_Data\Managed</ManagedDir>
     <BepInExCore>$(GameDir)\BepInEx\core</BepInExCore>
   </PropertyGroup>
@@ -30,10 +31,6 @@
     <!-- Game assemblies -->
     <Reference Include="Seapower-Scripts">
       <HintPath>$(ManagedDir)\Seapower-Scripts.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
 

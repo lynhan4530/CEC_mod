@@ -142,11 +142,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "G:\\Project\\SeaPowerDataExtraction\\scratch\\Decompiler\\Decompiler.csproj",
+      "projectUniqueName": "G:\\Project\\CEC_mod\\scratch\\Decompiler\\Decompiler.csproj",
       "projectName": "Decompiler",
-      "projectPath": "G:\\Project\\SeaPowerDataExtraction\\scratch\\Decompiler\\Decompiler.csproj",
+      "projectPath": "G:\\Project\\CEC_mod\\scratch\\Decompiler\\Decompiler.csproj",
       "packagesPath": "C:\\Users\\lynha\\.nuget\\packages\\",
-      "outputPath": "G:\\Project\\SeaPowerDataExtraction\\scratch\\Decompiler\\obj\\",
+      "outputPath": "G:\\Project\\CEC_mod\\scratch\\Decompiler\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\lynha\\AppData\\Roaming\\NuGet\\NuGet.Config"

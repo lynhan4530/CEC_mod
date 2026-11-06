@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "QgeFnZvgz8o=",
+  "dgSpecHash": "r9Mqs5E0Bs0=",
   "success": true,
-  "projectFilePath": "g:\\Project\\SeaPowerDataExtraction\\scratch\\Decompiler\\Decompiler.csproj",
+  "projectFilePath": "G:\\Project\\CEC_mod\\scratch\\Decompiler\\Decompiler.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\lynha\\.nuget\\packages\\icsharpcode.decompiler\\10.1.0.8386\\icsharpcode.decompiler.10.1.0.8386.nupkg.sha512",
     "C:\\Users\\lynha\\.nuget\\packages\\system.collections.immutable\\9.0.0\\system.collections.immutable.9.0.0.nupkg.sha512",

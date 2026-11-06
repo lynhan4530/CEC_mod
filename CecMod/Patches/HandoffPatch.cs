@@ -1,70 +1,188 @@
-using System.Runtime.CompilerServices;
+using System;
+using System.Collections.Generic;
 using HarmonyLib;
 using SeaPower;
 
 namespace CecMod.Patches
 {
     /// <summary>
-    /// Patch 3 (true mid-flight handoff). The engine assigns a missile's guiding radar once at launch
-    /// and never looks for a replacement: Missile.OnUpdateEveryFrame only inspects the single
-    /// _guidingRadarSystem and, on loss, sets ConnectionLost -> ConnectionLostForever. This postfix
-    /// detects a recoverable loss and re-acquires guidance from a CEC-capable consort, transferring
-    /// the radar channels and (for SARH) re-pointing the seeker. All downstream LOS/horizon/frequency
-    /// math reads off _guidingRadarSystem, so it adapts to the new ship automatically.
+    /// Mid-flight CEC handoff and consort radio-link fix.
+    /// <para>
+    /// 1. Fixes two vanilla bugs in <see cref="Missile.CheckRadioConnection"/> when a consort
+    ///    or AWACS is guiding a missile (<c>_guidingRadarSystem._baseObject != _launchPlatform</c>):
+    ///    - Vanilla raycasts from <c>_guidingRadarSystem.SensorPosition</c> and only ignores colliders
+    ///      belonging to <c>_launchPlatform</c>, so a guiding consort's own hull/superstructure blocks
+    ///      the raycast and causes immediate <c>ConnectionLost</c>.
+    ///    - Vanilla evaluates <c>_launchPlatform.GetSensorRange</c> and <c>_launchPlatform._alignmentTasks</c>
+    ///      instead of the guiding platform's sensor range and alignment state.
+    ///    By temporarily aliasing <c>_launchPlatform</c> to <c>_guidingRadarSystem._baseObject</c> during
+    ///    <see cref="Missile.OnUpdateEveryFrame"/>, both checks accurately evaluate the guiding unit.
+    /// </para>
+    /// <para>
+    /// 2. Polls in-flight missiles that have lost connection to their guiding radar (or whose guiding
+    ///    radar was destroyed/jammed/horizon-blocked) and hands them off to the nearest compatible
+    ///    CEC consort or AWACS radar in the same doctrinal network.
+    /// </para>
     /// </summary>
-    [HarmonyPatch(typeof(Missile), nameof(Missile.OnUpdateEveryFrame))]
+    [HarmonyPatch]
     internal static class HandoffPatch
     {
-        private const float RetryInterval = 2.5f;
+        private const double RetryCooldownSeconds = 1.0;
 
-        private static readonly ConditionalWeakTable<Missile, StrongBox<float>> _nextAttempt =
-            new ConditionalWeakTable<Missile, StrongBox<float>>();
+        /// <summary>
+        /// True while <see cref="Missile.OnUpdateEveryFrame"/> is executing, so
+        /// <see cref="RemoteEngagementPatch"/> evaluates only the guiding platform's own sensors
+        /// rather than recursing into remote network sensors.
+        /// </summary>
+        internal static bool IsCheckingRadioConnection { get; private set; }
 
-        private static void Postfix(Missile __instance)
+        private static readonly Dictionary<int, double> _lastAttemptByMissile = new Dictionary<int, double>();
+        private static double _lastPruneTime;
+
+        [HarmonyPatch(typeof(Missile), nameof(Missile.OnUpdateEveryFrame))]
+        [HarmonyPrefix]
+        private static void OnUpdateEveryFrame_Prefix(Missile __instance, out ObjectBase __state)
         {
-            var m = __instance;
-            if (m.IsDestroyed) return;
+            __state = __instance != null ? __instance._launchPlatform : null;
+            IsCheckingRadioConnection = true;
 
-            bool isSarh = m._seeker != null &&
-                          m._seeker._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
-            bool isRadioCmd = m._ap != null &&
-                              m._ap._midCourseCorrection == AmmunitionParameters.MidCourseCorrection.RadioCommand;
-            if (!isSarh && !isRadioCmd) return;
-
-            // Act only on a recoverable loss with a live target.
-            if (m.ConnectionLostForever.Value) return;
-            bool needHandoff = m._guidingRadarSystem == null || m.ConnectionLost.Value;
-            if (!needHandoff) return;
-            if (m.CurrentIntendedTargetObject == null) return;
-
-            // Throttle the per-missile task-force scan.
-            var slot = _nextAttempt.GetOrCreateValue(m);
-            if (GameTime.time < slot.Value) return;
-            slot.Value = GameTime.time + RetryInterval;
-
-            var candidate = CecCapability.FindHandoffRadar(m);
-            var old = m._guidingRadarSystem;
-            if (candidate == null || candidate == old) return;
-
-            // Claim the new radar first; only release the old one once the new claim succeeds.
-            if (!candidate.TryToAddTarget(m.CurrentIntendedTargetObject))
-                return;
-            if (!candidate.TryToAddWeapon(m))
+            try
             {
-                candidate.FreeChannels(m.CurrentIntendedTargetObject, m); // roll back the target claim
-                return;
+                if (__instance == null)
+                    return;
+
+                SensorSystemRadar guiderRadar = __instance._guidingRadarSystem;
+                ObjectBase guiderPlatform = guiderRadar != null ? guiderRadar._baseObject : null;
+                if (guiderPlatform != null && !guiderPlatform.IsDestroyed && guiderPlatform != __instance._launchPlatform)
+                {
+                    __instance._launchPlatform = guiderPlatform;
+                }
             }
-            old?.FreeChannels(m.CurrentIntendedTargetObject, m);
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] OnUpdateEveryFrame_Prefix exception: {ex}");
+            }
+        }
 
-            m._guidingRadarSystem = candidate;
-            candidate._isGuiding = true;
-            m.ConnectionLost.Value = false;
-            m.ConnectionLostForever.Value = false;
-            if (isSarh)
-                m._seeker.setGuidingSystem(candidate);
+        [HarmonyPatch(typeof(Missile), nameof(Missile.OnUpdateEveryFrame))]
+        [HarmonyPostfix]
+        private static void OnUpdateEveryFrame_Postfix(Missile __instance, ObjectBase __state)
+        {
+            if (__instance != null)
+                __instance._launchPlatform = __state;
+            IsCheckingRadioConnection = false;
 
-            CecPlugin.Log?.LogInfo(
-                $"CEC handoff: {m.getName()} now guided by {candidate._baseObject?.getName()} ({candidate._systemName})");
+            try
+            {
+                if (__instance == null || __instance.IsDestroyed)
+                    return;
+
+                ObjectBase target = __instance.CurrentIntendedTargetObject;
+                if (target == null || __instance._ap == null)
+                    return;
+
+                // Terminal seeker already took over (e.g. active radar terminal phase) -> no mid-course handoff needed.
+                if (!__instance._requiresExternalGuidance)
+                    return;
+
+                bool isSarh = __instance._ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
+                bool hasMidCourseDatalink = __instance._ap._midCourseCorrection != null
+                                            && __instance._ap._midCourseCorrection.AllowsLauncherGuidance;
+                if (!isSarh && !hasMidCourseDatalink)
+                    return;
+
+                SensorSystemRadar currentRadar = __instance._guidingRadarSystem;
+                bool currentRadarDead = currentRadar == null
+                                        || currentRadar.IsDestroyed
+                                        || currentRadar.Inoperable.Value
+                                        || !currentRadar.IsOn.Value
+                                        || currentRadar._baseObject == null
+                                        || currentRadar._baseObject.IsDestroyed;
+
+                if (!__instance.ConnectionLost.Value && !__instance.ConnectionLostForever.Value && !currentRadarDead)
+                    return;
+
+                double now = GameTime.missionElapsedTime;
+                int id = __instance.UniqueID;
+
+                if (_lastAttemptByMissile.TryGetValue(id, out double last) && now - last < RetryCooldownSeconds)
+                    return;
+                _lastAttemptByMissile[id] = now;
+
+                if (now - _lastPruneTime > 30.0)
+                {
+                    _lastPruneTime = now;
+                    _lastAttemptByMissile.Clear();
+                }
+
+                SensorSystemRadar newRadar = CecCapability.FindHandoffRadar(__instance);
+                if (newRadar == null)
+                    return;
+
+                if (!newRadar.IsAimedAtTarget(target) && !newRadar.TryToAddTarget(target))
+                    return;
+                if (!newRadar.IsGuidingWeapon(__instance) && !newRadar.TryToAddWeapon(__instance))
+                    return;
+
+                string oldOwner = currentRadar?._baseObject?.getName() ?? "<none>";
+                string oldRadarName = currentRadar?._systemName ?? "<none>";
+
+                if (currentRadar != null && currentRadar != newRadar)
+                {
+                    currentRadar.FreeChannels(target, __instance);
+                }
+
+                __instance._guidingRadarSystem = newRadar;
+                newRadar._isGuiding = true;
+                newRadar._restPositionReached = false;
+                newRadar._preLaunchTargetObject = null;
+                __instance._seeker?.setGuidingSystem(newRadar);
+
+                __instance.ConnectionLost.Value = false;
+                __instance.ConnectionLostForever.Value = false;
+                __instance._lostGuidanceTime = now;
+
+                CecPlugin.Log.LogInfo(
+                    $"[CEC] Handoff: missile '{__instance.getObjectIniName()}' (#{id}) re-linked from " +
+                    $"'{oldOwner}' ({oldRadarName}) -> '{newRadar._baseObject.getName()}' ({newRadar._systemName}).");
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] OnUpdateEveryFrame_Postfix exception: {ex}");
+            }
+        }
+
+        [HarmonyPatch(typeof(Missile), nameof(Missile.OnUpdateEveryFrame))]
+        [HarmonyFinalizer]
+        private static Exception OnUpdateEveryFrame_Finalizer(Missile __instance, ObjectBase __state, Exception __exception)
+        {
+            if (__instance != null)
+                __instance._launchPlatform = __state;
+            IsCheckingRadioConnection = false;
+            return __exception;
+        }
+
+        /// <summary>
+        /// Prevents a missile actively guided by a live consort/AWACS from being classified as an
+        /// unguidable orphan if its original <see cref="WeaponBase._launchPlatform"/> is sunk.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponBase), nameof(WeaponBase.IsUnguidableOrphan), MethodType.Getter)]
+        [HarmonyPostfix]
+        private static void IsUnguidableOrphan_Postfix(WeaponBase __instance, ref bool __result)
+        {
+            if (!__result || __instance == null)
+                return;
+
+            SensorSystemRadar guider = __instance._guidingRadarSystem;
+            if (guider != null
+                && !guider.IsDestroyed
+                && !guider.Inoperable.Value
+                && guider.IsOn.Value
+                && guider._baseObject != null
+                && !guider._baseObject.IsDestroyed)
+            {
+                __result = false;
+            }
         }
     }
 }
