@@ -35,7 +35,7 @@ flowchart TD
     C --> D["Pre-Launch OTH / EMCON<br/>Postfixes on CanSearchSensorsSeeTarget,<br/>IsVisionRequirementMet, FCRDetectionRange,<br/>GetMaxRangeForFCR, GetSensorRange"]
     C --> E["Mid-Course Datalink Carrier<br/>Allow local/consort DatalinkCarrier for SARH+MCC<br/>Sync consort illuminators into _ap._associatedSensors"]
     C --> F["In-Flight & Terminal Handoff<br/>Alias _launchPlatform in BOTH OnUpdateEveryFrame & OnFixedUpdate<br/>EG Illuminator() auto-picks forward consort SPG-62/APAR!"]
-    C --> G["Unified UI Status<br/>Track view->missile in GetState Prefix<br/>Inject Launcher -> Guider in set_ObjectState Prefix"]
+    C --> G["Unified UI Status<br/>Track view->missile in GetState Prefix<br/>Show only Guider name in set_ObjectState Prefix"]
 ```
 
 ---
@@ -113,15 +113,15 @@ Implement `internal static class EgBridge`:
 ---
 
 ### Step 6: Update [`Patches/DatalinkUiPatch.cs`](file:///G:/Project/CEC_mod/CecMod/Patches/DatalinkUiPatch.cs)
-Make `Launcher -> Guider` display in **both** vanilla mode and `ExtendedGuidance` mode:
+Display the CEC guider cleanly in **both** vanilla mode and `ExtendedGuidance` mode (user preference: **only show the guider's name**):
 1. Keep a `ConditionalWeakTable<ObjectMissileControlViewModel, Missile>` populated by a lightweight **Prefix** on `ObjectMissileControlViewModel.GetState(Missile missile, SensorSystemLaserDesignator designator)` (`Priority.First`, `priority = 900`, before `ExtendedGuidance`'s `priority = 800` Prefix!).
 2. Patch `ObjectMissileControlViewModel.ObjectState` **Setter** (`[HarmonyPatch(typeof(ObjectMissileControlViewModel), nameof(ObjectMissileControlViewModel.ObjectState), MethodType.Setter)]`, Prefix modifying `ref string value`):
    - Look up `Missile m` for `__instance` in the `ConditionalWeakTable`.
    - Check both `SensorSystemRadar activeIllum = EgBridge.GetActiveEgIlluminator(m)` and `m._guidingRadarSystem`.
    - Determine `guider = (activeIllum ?? m._guidingRadarSystem)?._baseObject`.
    - If `guider != null && guider != m._launchPlatform`:
-     - In vanilla format (where `value` contains `launcherName` or `"Nibiru"`), replace with `$"{launcherLabel} -> {guiderName}"` (avoiding double-injection if already present).
-     - In `ExtendedGuidance` format (where `WriteMissileRow` writes e.g. `"SARH: midcourse DL<LineBreak/>Target: 104"` without unit names, refreshed every 0.25s by `RefreshMissileRows`), insert `<LineBreak/>CEC: {launcherLabel} -> {guiderName}` before `<LineBreak/>Target:` / `<LineBreak/>No target info`!
+     - **Vanilla format** (`value` contains `launcherName` or `"Nibiru"`): replace `launcherName` / `"Nibiru"` with **`guiderName`** (only the guider's name, avoiding double-replacement).
+     - **`ExtendedGuidance` format** (where `WriteMissileRow` writes e.g. `"SARH: midcourse DL<LineBreak/>Target: 104"` without unit names, refreshed every 0.25s by `RefreshMissileRows`): insert `<LineBreak/>{guiderName}` (only the guider's name) before `<LineBreak/>Target:` / `<LineBreak/>No target info`!
 
 ---
 
@@ -131,10 +131,10 @@ Make `Launcher -> Guider` display in **both** vanilla mode and `ExtendedGuidance
    - `dotnet build G:\Project\CEC_mod\CecMod\CecMod.csproj -c Release` -> **0 warnings, 0 errors**, with **no** reference to `ExtendedGuidance.dll` in `CecMod.csproj`.
    - Reflection script verifying all Harmony targets resolve unambiguously against `Seapower-Scripts.dll` (0.8.7).
 2. **Test Case A — `ExtendedGuidance` OFF**:
-   - Euromod Burke (`eu_AEGIS_BL9`) cannot fire 16 SARH `SM-2`s without `SPG-62` channels; AWACS OTH `SM-6` launch works; consort `SM-2` illumination handoff works; UI shows `Ship A -> Ship B`.
+   - Euromod Burke (`eu_AEGIS_BL9`) cannot fire 16 SARH `SM-2`s without `SPG-62` channels; AWACS OTH `SM-6` launch works; consort `SM-2` illumination handoff works; UI shows only the guider's name (`Ship B`).
 3. **Test Case B — `ExtendedGuidance` ON (via Anchor Chain Pack)**:
    - Own-ship Aegis Burke fires >4 `SM-2`s using `eu_AEGIS_BL9` mid-course carrier + delayed `SPG-62` terminal illumination (`ExtendedGuidance` TSH works!).
    - Rear Burke in EMCON or behind horizon fires `SM-6` / `SM-2` on E-2D Hawkeye or forward picket Burke track (`Engage-on-Remote` works!).
    - Forward picket Burke illuminates the low-altitude target during final terminal approach when rear Burke is horizon-masked (`HandoffPatch` -> `Runtime.Illuminator` adoption works!).
    - Sinking the launching ship mid-flight transfers guidance cleanly to the consort/AWACS without `RefreshExternal` dropping the link.
-   - Bottom-bar missile status shows both `ExtendedGuidance` seeker state AND `CEC: Launcher -> Guider`.
+   - Bottom-bar missile status shows `ExtendedGuidance` seeker state + only the guider's name (`Guider`).
