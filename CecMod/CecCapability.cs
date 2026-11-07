@@ -458,19 +458,40 @@ namespace CecMod
         }
 
         /// <summary>
-        /// Evaluates whether <paramref name="sensor"/> can guide <paramref name="ap"/> on its own platform,
-        /// fixing Euromod's synthetic datalink (`eu_AEGIS_BL9`) channel-bypass bug when ExtendedGuidance.dll is disabled.
+        /// Evaluates whether <paramref name="sensor"/> can guide <paramref name="ap"/> on its own platform.
+        /// When <c>ExtendedGuidance.dll</c> is disabled, blocks synthetic datalinks (<c>eu_AEGIS_BL9</c>)
+        /// from guiding SARH missiles so ships cannot bypass physical CW illuminator channel limits.
+        /// When <c>ExtendedGuidance.dll</c> is active, allows synthetic/native <c>DatalinkCarrier</c> sensors
+        /// in the same CEC network to carry mid-course datalink updates for SARH+Datalink missiles while
+        /// <c>ExtendedGuidance.Runtime.Illuminator</c> enforces real CW/IWI terminal illumination.
         /// </summary>
         public static bool CanSensorGuideAmmo(SensorSystem sensor, AmmunitionParameters ap)
         {
             if (sensor == null || ap == null) return true;
 
-            // Rule 1: A synthetic datalink transceiver (eu_AEGIS_BL9, SYR-1, spa_SCOMBA_v1, etc.) or AWACS radar
-            // can NEVER terminally illuminate a Semi-Active Radar Homing (SARH) missile.
+            // Rule 1: An airborne AWACS radar can NEVER guide or terminally illuminate a SARH missile.
+            // A synthetic datalink transceiver (eu_AEGIS_BL9, SYR-1, spa_SCOMBA_v1, etc.) can only be
+            // bound to a SARH+Datalink missile when ExtendedGuidance.dll is active to enforce terminal CW illumination.
             if (ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
             {
-                if (IsSyntheticDatalinkSensor(sensor) || IsAwacsRadar(sensor))
+                if (IsAwacsRadar(sensor))
                     return false;
+
+                if (IsSyntheticDatalinkSensor(sensor))
+                {
+                    if (!EgBridge.IsActive || ap._midCourseCorrection == null || !ap._midCourseCorrection.IsDatalink)
+                        return false;
+
+                    CecNetwork sensorNet = GetSensorNetwork(sensor);
+                    if (sensorNet == CecNetwork.None && sensor._baseObject != null)
+                        sensorNet = GetPlatformNetwork(sensor._baseObject);
+
+                    CecNetwork ownerNet = GetAmmoOwnerNetwork(ap);
+                    if (ownerNet != CecNetwork.None && sensorNet != CecNetwork.None && (ownerNet & sensorNet) == 0)
+                        return false;
+
+                    return true;
+                }
             }
 
             // Rule 2: When firing an Active Radar Homing (ARH) or IIR missile with mid-course datalink
@@ -488,6 +509,25 @@ namespace CecMod
             }
 
             return true;
+        }
+
+        private static CecNetwork GetAmmoOwnerNetwork(AmmunitionParameters ap)
+        {
+            if (ap == null) return CecNetwork.None;
+            if (ap._associatedWeaponSystems != null)
+            {
+                for (int i = 0; i < ap._associatedWeaponSystems.Count; i++)
+                {
+                    var ws = ap._associatedWeaponSystems[i];
+                    if (ws?._baseObject != null)
+                    {
+                        CecNetwork net = GetPlatformNetwork(ws._baseObject);
+                        if (net != CecNetwork.None)
+                            return net;
+                    }
+                }
+            }
+            return InferNetworkFromAmmoName(ap._ammunitionFileName);
         }
 
         private static bool PlatformHasDedicatedMidCourseSensor(ObjectBase platform, List<SensorSystem> associated)
@@ -654,11 +694,8 @@ namespace CecMod
             float launcherAntennaY = DatalinkMastHeight(platform, requireRadarOn: false);
             if (launcherAntennaY < 0f) return;
 
-            var ap = ws._ammoForEngage?._ap;
-            bool isArhOrMidCourseOnly = ap != null &&
-                                        ap._guidanceType != AmmunitionParameters.GuidanceType.SemiActiveRadarHoming &&
-                                        ap._midCourseCorrection != null &&
-                                        ap._midCourseCorrection.AllowsLauncherGuidance;
+            GetLauncherGuidanceNeeds(ws, out bool needsSarh, out bool needsMidCourse);
+            var deferredIdleIlluminators = needsSarh ? new List<SensorSystemRadar>() : null;
 
             // Scan taskforce vessels for consort illuminators / multifunction radars
             if (tf._taskforceVessels != null)
@@ -667,33 +704,128 @@ namespace CecMod
                 {
                     TryInjectFromCooperator(
                         platform, launcherAntennaY, launcherNet, launcherSarhFamily,
-                        nativeRadarNames, isArhOrMidCourseOnly, tf._taskforceVessels[i],
-                        associated, vwp._externalGuidingSystems, injected, injectedExt);
+                        nativeRadarNames, needsSarh, needsMidCourse, tf._taskforceVessels[i],
+                        associated, vwp._externalGuidingSystems, injected, injectedExt, deferredIdleIlluminators);
                 }
             }
 
             // Scan taskforce aircraft (AWACS / fighters) for ARH mid-course or fighter-to-fighter CEC
-            if ((isArhOrMidCourseOnly || platform is Aircraft) && tf._taskforceAircraft != null)
+            if ((needsMidCourse || platform is Aircraft) && tf._taskforceAircraft != null)
             {
                 for (int i = 0; i < tf._taskforceAircraft.Count; i++)
                 {
                     TryInjectFromCooperator(
                         platform, launcherAntennaY, launcherNet, launcherSarhFamily,
-                        nativeRadarNames, isArhOrMidCourseOnly, tf._taskforceAircraft[i],
-                        associated, vwp._externalGuidingSystems, injected, injectedExt);
+                        nativeRadarNames, needsSarh: false, needsMidCourse: true, tf._taskforceAircraft[i],
+                        associated, vwp._externalGuidingSystems, injected, injectedExt, deferredIdleIlluminators: null);
                 }
             }
 
             // Scan taskforce helicopters (e.g. Ka-31, Z-18J AEW helicopters) for ARH mid-course
-            if (isArhOrMidCourseOnly && tf._taskforceHelicopters != null)
+            if (needsMidCourse && tf._taskforceHelicopters != null)
             {
                 for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
                 {
                     TryInjectFromCooperator(
                         platform, launcherAntennaY, launcherNet, launcherSarhFamily,
-                        nativeRadarNames, isArhOrMidCourseOnly, tf._taskforceHelicopters[i],
-                        associated, vwp._externalGuidingSystems, injected, injectedExt);
+                        nativeRadarNames, needsSarh: false, needsMidCourse: true, tf._taskforceHelicopters[i],
+                        associated, vwp._externalGuidingSystems, injected, injectedExt, deferredIdleIlluminators: null);
                 }
+            }
+
+            // Append idle Targeting SARH illuminators AFTER active radars so vanilla activatePreLaunchGuidance
+            // prefers active mid-course/AWACS radars first while ExtendedGuidance.Runtime.Illuminator can still
+            // reserve and auto-enable consort illuminators during terminal SARH approach.
+            if (deferredIdleIlluminators != null)
+            {
+                for (int i = 0; i < deferredIdleIlluminators.Count; i++)
+                {
+                    var r = deferredIdleIlluminators[i];
+                    if (!associated.Contains(r))
+                    {
+                        associated.Add(r);
+                        injected.Add(r);
+                    }
+                    if (vwp._externalGuidingSystems != null && !string.IsNullOrEmpty(r._systemName) &&
+                        !vwp._externalGuidingSystems.Contains(r._systemName))
+                    {
+                        vwp._externalGuidingSystems.Add(r._systemName);
+                        injectedExt.Add(r._systemName);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ensures a per-vessel <see cref="AmmunitionParameters"/> instance (<c>!ap.IsSharedMaster</c>)
+        /// exposes <paramref name="ws"/>'s consort-enriched <c>_associatedSensors</c> list so
+        /// <c>ExtendedGuidance.Runtime.Illuminator</c> can automatically reserve forward consort illuminators.
+        /// </summary>
+        public static void SyncConsortIlluminatorsToAmmo(WeaponSystem ws, AmmunitionParameters ap)
+        {
+            if (ws?._vwp?._associatedSensors == null || ap == null || ap.IsSharedMaster)
+                return;
+
+            var wsSensors = ws._vwp._associatedSensors;
+            if (ap._associatedSensors == null)
+            {
+                ap._associatedSensors = wsSensors;
+                return;
+            }
+
+            if (ReferenceEquals(ap._associatedSensors, wsSensors))
+                return;
+
+            // Multi-launcher ship where ap._associatedSensors points to sibling launcher's sensor list:
+            // ensure any consort sensors injected into ws are present there too (same taskforce only).
+            var tf = ws._baseObject?._taskforce;
+            if (tf == null)
+                return;
+
+            for (int i = 0; i < wsSensors.Count; i++)
+            {
+                var s = wsSensors[i];
+                if (s?._baseObject != null && s._baseObject._taskforce == tf && !ap._associatedSensors.Contains(s))
+                {
+                    ap._associatedSensors.Add(s);
+                }
+            }
+        }
+
+        private static void GetLauncherGuidanceNeeds(WeaponSystem ws, out bool needsSarh, out bool needsMidCourse)
+        {
+            needsSarh = false;
+            needsMidCourse = false;
+
+            InspectAmmoGuidanceNeeds(ws?._ammoForEngage?._ap, ref needsSarh, ref needsMidCourse);
+            InspectAmmoGuidanceNeeds(ws?._ammunitionOnWeapon?._ap, ref needsSarh, ref needsMidCourse);
+
+            var magList = ws?._vwp?._associatedMagazine?._ammunitionList;
+            if (magList != null)
+            {
+                for (int i = 0; i < magList.Count; i++)
+                {
+                    InspectAmmoGuidanceNeeds(magList[i]?._ap, ref needsSarh, ref needsMidCourse);
+                }
+            }
+
+            // Fallback when magazine inspection yields nothing (e.g. direct container launcher while idle)
+            if (!needsSarh && !needsMidCourse)
+            {
+                needsSarh = true;
+                needsMidCourse = true;
+            }
+        }
+
+        private static void InspectAmmoGuidanceNeeds(AmmunitionParameters ap, ref bool needsSarh, ref bool needsMidCourse)
+        {
+            if (ap == null) return;
+            if (ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
+                needsSarh = true;
+            if (ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance &&
+                ap._guidanceType != AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
+            {
+                needsMidCourse = true;
             }
         }
 
@@ -703,12 +835,14 @@ namespace CecMod
             CecNetwork launcherNet,
             SarhIllumFamily launcherSarhFamily,
             HashSet<string> nativeRadarNames,
-            bool isArhOrMidCourseOnly,
+            bool needsSarh,
+            bool needsMidCourse,
             ObjectBase cooperator,
             List<SensorSystem> associated,
             List<string> externalGuidingSystems,
             HashSet<SensorSystem> injected,
-            HashSet<string> injectedExt)
+            HashSet<string> injectedExt,
+            List<SensorSystemRadar> deferredIdleIlluminators)
         {
             if (cooperator == null || cooperator == launcher || cooperator.IsDestroyed) return;
             var systems = cooperator._obp?._sensorSystems;
@@ -723,7 +857,7 @@ namespace CecMod
             float linkDist = HorizontalDistance(launcher.transform.position, cooperator.transform.position);
             if (linkDist > maxCap) return;
 
-            // Cooperator must have an ACTIVE datalink radar on the net.
+            // Cooperator must have an ACTIVE datalink radar on the net (i.e. not in EMCON).
             float coopAntennaY = DatalinkMastHeight(cooperator, requireRadarOn: true);
             if (coopAntennaY < 0f) return;
             if (!InLinkHorizon(launcherAntennaY, coopAntennaY, linkDist)) return;
@@ -731,8 +865,18 @@ namespace CecMod
             for (int i = 0; i < systems.Count; i++)
             {
                 if (!(systems[i] is SensorSystemRadar r)) continue;
-                if (!QualifiesForLaunchInjection(r, launcherNet, launcherSarhFamily, nativeRadarNames, isArhOrMidCourseOnly))
+                if (!QualifiesForLaunchInjection(
+                        r, launcherNet, launcherSarhFamily, nativeRadarNames,
+                        needsSarh, needsMidCourse, out bool isDeferredIdleIlluminator))
+                {
                     continue;
+                }
+
+                if (isDeferredIdleIlluminator)
+                {
+                    deferredIdleIlluminators?.Add(r);
+                    continue;
+                }
 
                 if (!associated.Contains(r))
                 {
@@ -753,32 +897,56 @@ namespace CecMod
             CecNetwork launcherNet,
             SarhIllumFamily launcherSarhFamily,
             HashSet<string> nativeRadarNames,
-            bool isArhOrMidCourseOnly)
+            bool needsSarh,
+            bool needsMidCourse,
+            out bool isDeferredIdleIlluminator)
         {
-            if (!UsableGuidanceRadar(r)) return false;
+            isDeferredIdleIlluminator = false;
+            if (r == null || r._baseObject == null || r._baseObject.IsDestroyed) return false;
+            if (r.Inoperable.Value || r._radar?._rp == null) return false;
 
-            if (isArhOrMidCourseOnly)
+            if (!r.IsOn.Value)
             {
-                // For ARH / mid-course datalink missiles (SM-6, SM-2IIIC, ESSM Blk 2, Aster, AIM-120D, AIM-174B, PL-15, 40N6):
-                // Accept multifunction radars, synthetic datalinks, or AWACS radars in the same CEC network.
-                if (PureCwDishIlluminators.Contains(r._systemName)) return false;
-                CecNetwork rNet = GetSensorNetwork(r);
-                if ((rNet & launcherNet) == 0 && !nativeRadarNames.Contains(r._systemName))
+                // Dedicated Targeting SARH illuminators (SPG-62, STIR, Top Dome, etc.) sit idle (IsOn == false)
+                // until an engagement reserves them. Because the cooperator ship already passed DatalinkMastHeight
+                // with requireRadarOn: true (not in EMCON), allow deferring idle SARH illuminators to the tail of _associatedSensors.
+                if (!needsSarh || r._type != SensorSystemRadar.RadarType.Targeting)
                     return false;
-                if (IsAwacsRadar(r) || IsCecMultifunctionRadar(r))
-                    EnsureMidCourseChannels(r);
-                return r.HasFreeChannels();
+                if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r))
+                    return false;
+
+                SarhIllumFamily idleFam = GetSarhFamily(r);
+                bool idleMatch = (launcherSarhFamily != SarhIllumFamily.None && idleFam == launcherSarhFamily) ||
+                                 nativeRadarNames.Contains(r._systemName);
+                if (!idleMatch || !r.HasFreeChannels())
+                    return false;
+
+                isDeferredIdleIlluminator = true;
+                return true;
             }
-            else
+
+            if (needsSarh && !IsSyntheticDatalinkSensor(r) && !IsAwacsRadar(r))
             {
-                // For SARH missiles: require a physically compatible terminal illuminator (never a synthetic datalink or AWACS).
-                if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)) return false;
                 SarhIllumFamily rFam = GetSarhFamily(r);
                 bool familyMatch = (launcherSarhFamily != SarhIllumFamily.None && rFam == launcherSarhFamily) ||
                                    nativeRadarNames.Contains(r._systemName);
-                if (!familyMatch) return false;
-                return r.HasFreeChannels();
+                if (familyMatch && r.HasFreeChannels())
+                    return true;
             }
+
+            if (needsMidCourse && !PureCwDishIlluminators.Contains(r._systemName))
+            {
+                CecNetwork rNet = GetSensorNetwork(r);
+                if ((rNet & launcherNet) != 0 || nativeRadarNames.Contains(r._systemName))
+                {
+                    if (IsAwacsRadar(r) || IsCecMultifunctionRadar(r))
+                        EnsureMidCourseChannels(r);
+                    if (r.HasFreeChannels())
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         // =========================================================================================
@@ -789,7 +957,7 @@ namespace CecMod
         /// Finds the best qualifying CEC consort or AWACS radar to take over guidance of <paramref name="missile"/>.
         /// Handles both SARH terminal illuminator handoffs and ARH/command mid-course datalink handoffs.
         /// </summary>
-        public static SensorSystemRadar FindHandoffRadar(Missile missile)
+        public static SensorSystemRadar FindHandoffRadar(Missile missile, bool requireTerminalIlluminator = false)
         {
             var ap = missile?._ap;
             var launcher = missile?._launchPlatform;
@@ -822,6 +990,13 @@ namespace CecMod
             if (isSarh && reqSarhFam == SarhIllumFamily.None && missile._guidingRadarSystem != null)
                 reqSarhFam = GetSarhFamily(missile._guidingRadarSystem);
 
+            bool allowSarhCarrierMidCourse = isSarh
+                                             && !requireTerminalIlluminator
+                                             && EgBridge.IsActive
+                                             && ap._midCourseCorrection != null
+                                             && ap._midCourseCorrection.IsDatalink
+                                             && !EgBridge.IsTerminalIlluminationDue(missile);
+
             var current = missile._guidingRadarSystem;
             var targetPos = target.transform.position;
 
@@ -839,7 +1014,7 @@ namespace CecMod
                 for (int i = 0; i < tf._taskforceVessels.Count; i++)
                 {
                     EvaluateHandoffCooperator(
-                        missile, ap, target, targetPos, isSarh, reqNet, reqSarhFam, current,
+                        missile, ap, target, targetPos, isSarh, allowSarhCarrierMidCourse, reqNet, reqSarhFam, current,
                         launcherAlive, launcherAirborne, launcherAntennaY, launcherPos,
                         tf._taskforceVessels[i], ref best, ref bestScore);
                 }
@@ -851,7 +1026,7 @@ namespace CecMod
                 for (int i = 0; i < tf._taskforceAircraft.Count; i++)
                 {
                     EvaluateHandoffCooperator(
-                        missile, ap, target, targetPos, isSarh, reqNet, reqSarhFam, current,
+                        missile, ap, target, targetPos, isSarh, allowSarhCarrierMidCourse: false, reqNet, reqSarhFam, current,
                         launcherAlive, launcherAirborne, launcherAntennaY, launcherPos,
                         tf._taskforceAircraft[i], ref best, ref bestScore);
                 }
@@ -863,7 +1038,7 @@ namespace CecMod
                 for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
                 {
                     EvaluateHandoffCooperator(
-                        missile, ap, target, targetPos, isSarh, reqNet, reqSarhFam, current,
+                        missile, ap, target, targetPos, isSarh, allowSarhCarrierMidCourse: false, reqNet, reqSarhFam, current,
                         launcherAlive, launcherAirborne, launcherAntennaY, launcherPos,
                         tf._taskforceHelicopters[i], ref best, ref bestScore);
                 }
@@ -878,6 +1053,7 @@ namespace CecMod
             ObjectBase target,
             Vector3 targetPos,
             bool isSarh,
+            bool allowSarhCarrierMidCourse,
             CecNetwork reqNet,
             SarhIllumFamily reqSarhFam,
             SensorSystemRadar current,
@@ -912,15 +1088,22 @@ namespace CecMod
             for (int i = 0; i < systems.Count; i++)
             {
                 if (!(systems[i] is SensorSystemRadar r) || r == current) continue;
-                if (!QualifiesForHandoff(r, ap, isSarh, reqNet, reqSarhFam, current?._systemName)) continue;
+                if (!QualifiesForHandoff(r, ap, isSarh, allowSarhCarrierMidCourse, reqNet, reqSarhFam, current?._systemName))
+                    continue;
                 if (r._mountObject == null) continue;
 
-                // Must see the target right now (within range, radar horizon, and DirectedSearch FOV arc).
-                if (!RadarCanSee(r, target)) continue;
+                bool isCarrierMidCourse = allowSarhCarrierMidCourse && EgBridge.IsDatalinkCarrier(r) && !EgBridge.CanEgIlluminate(r);
+                // Real illuminators and single-radar guiders must see the target right now;
+                // a mid-course DatalinkCarrier under ExtendedGuidance only needs LOS to the missile while the CEC net tracks the target.
+                if (!isCarrierMidCourse && !RadarCanSee(r, target)) continue;
                 // Must also have radio line-of-sight / horizon to the missile for rear-reference or command uplink.
                 if (!RadarCanReachMissile(r, missile)) continue;
 
                 float dSq = (r._mountObject.transform.position - targetPos).sqrMagnitude;
+                // Prefer DatalinkCarrier during mid-course SARH under ExtendedGuidance so CW illuminator channels stay free until terminal.
+                if (isCarrierMidCourse)
+                    dSq *= 0.25f;
+
                 if (dSq < bestScore)
                 {
                     bestScore = dSq;
@@ -933,11 +1116,17 @@ namespace CecMod
             SensorSystemRadar r,
             AmmunitionParameters ap,
             bool isSarh,
+            bool allowSarhCarrierMidCourse,
             CecNetwork reqNet,
             SarhIllumFamily reqSarhFam,
             string currentRadarName)
         {
-            if (!UsableGuidanceRadar(r)) return false;
+            if (r == null || r._baseObject == null || r._baseObject.IsDestroyed) return false;
+            if (r.Inoperable.Value || r._radar?._rp == null) return false;
+
+            // Allow idle Targeting SARH illuminators on non-EMCON consort vessels (cooperator already passed DatalinkMastHeight requireRadarOn: true).
+            if (!r.IsOn.Value && !(isSarh && r._type == SensorSystemRadar.RadarType.Targeting && !IsSyntheticDatalinkSensor(r) && !IsAwacsRadar(r)))
+                return false;
 
             var compatible = ap._compatibleGuidanceSystems;
             if (compatible != null && compatible.Count > 0 && !compatible.Contains(r._systemName))
@@ -945,7 +1134,16 @@ namespace CecMod
 
             if (isSarh)
             {
-                if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)) return false;
+                if (IsAwacsRadar(r)) return false;
+
+                if (IsSyntheticDatalinkSensor(r))
+                {
+                    if (!allowSarhCarrierMidCourse || !r.IsOn.Value) return false;
+                    CecNetwork carrierNet = GetSensorNetwork(r);
+                    if ((carrierNet & reqNet) == 0) return false;
+                    return r.HasFreeChannels();
+                }
+
                 if (r._type != SensorSystemRadar.RadarType.Targeting &&
                     r._type != SensorSystemRadar.RadarType.DirectedSearch)
                     return false;
@@ -1163,6 +1361,124 @@ namespace CecMod
             return hasAirSearchRadar;
         }
 
+        /// <summary>
+        /// True if <paramref name="platform"/> itself has at least one active non-synthetic radar
+        /// currently able to detect <paramref name="target"/> within range and radar horizon.
+        /// </summary>
+        public static bool HasLocalRadarSight(ObjectBase platform, ObjectBase target)
+        {
+            if (platform == null || platform.IsDestroyed || target == null || target.IsDestroyed) return false;
+            var systems = platform._obp?._sensorSystems;
+            if (systems == null) return false;
+
+            float distToTarget = HorizontalDistance(platform.transform.position, target.transform.position);
+            for (int i = 0; i < systems.Count; i++)
+            {
+                if (!(systems[i] is SensorSystemRadar r)) continue;
+                if (!UsableGuidanceRadar(r) || IsSyntheticDatalinkSensor(r)) continue;
+                if (target.isAirTarget() && !r.CanSeeAirTargets) continue;
+                if (!RadarCanSee(r, target)) continue;
+
+                var rangeData = r.GetRange(target);
+                if (rangeData != null && distToTarget <= rangeData.Distance)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True if a cooperative CEC/AWACS unit in <paramref name="shooter"/>'s network is actively
+        /// tracking <paramref name="target"/> (air or surface) on radar within datalink horizon.
+        /// </summary>
+        public static bool HasCooperativeTrack(ObjectBase shooter, ObjectBase target)
+        {
+            if (shooter == null || shooter.IsDestroyed || target == null || target.IsDestroyed) return false;
+            if (target.isAirTarget())
+                return HasCooperativeAirTrack(shooter, target);
+
+            var tf = shooter._taskforce;
+            if (tf == null) return false;
+
+            CecNetwork shooterNet = GetPlatformNetwork(shooter);
+            if (shooterNet == CecNetwork.None) return false;
+
+            float shooterAntennaY = DatalinkMastHeight(shooter, requireRadarOn: false);
+            if (shooterAntennaY < 0f) return false;
+
+            bool shooterAirborne = shooter is Aircraft || shooter is Helicopter;
+            var shooterPos = shooter.transform.position;
+
+            if (tf._taskforceAircraft != null)
+            {
+                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
+                {
+                    if (CooperatorSeesAnyTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
+                                                tf._taskforceAircraft[i], target))
+                        return true;
+                }
+            }
+            if (tf._taskforceHelicopters != null)
+            {
+                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
+                {
+                    if (CooperatorSeesAnyTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
+                                                tf._taskforceHelicopters[i], target))
+                        return true;
+                }
+            }
+            if (tf._taskforceVessels != null)
+            {
+                for (int i = 0; i < tf._taskforceVessels.Count; i++)
+                {
+                    if (CooperatorSeesAnyTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
+                                                tf._taskforceVessels[i], target))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool CooperatorSeesAnyTarget(
+            ObjectBase shooter,
+            Vector3 shooterPos,
+            float shooterAntennaY,
+            bool shooterAirborne,
+            CecNetwork shooterNet,
+            ObjectBase cooperator,
+            ObjectBase target)
+        {
+            if (cooperator == null || cooperator == shooter || cooperator.IsDestroyed) return false;
+            var systems = cooperator._obp?._sensorSystems;
+            if (systems == null) return false;
+
+            CecNetwork coopNet = GetPlatformNetwork(cooperator);
+            if ((shooterNet & coopNet) == 0) return false;
+
+            bool airborneLink = shooterAirborne || cooperator is Aircraft || cooperator is Helicopter;
+            float maxCap = airborneLink ? AirborneNetRangeCapUnits : SurfaceNetRangeCapUnits;
+            float linkDist = HorizontalDistance(shooterPos, cooperator.transform.position);
+            if (linkDist > maxCap) return false;
+
+            float coopAntennaY = DatalinkMastHeight(cooperator, requireRadarOn: true);
+            if (coopAntennaY < 0f || !InLinkHorizon(shooterAntennaY, coopAntennaY, linkDist)) return false;
+
+            float distToTarget = HorizontalDistance(cooperator.transform.position, target.transform.position);
+            for (int i = 0; i < systems.Count; i++)
+            {
+                if (!(systems[i] is SensorSystemRadar r)) continue;
+                if (!UsableGuidanceRadar(r) || IsSyntheticDatalinkSensor(r)) continue;
+                if (!r._radar._rp._hasDataLink && GetSensorNetwork(r) == CecNetwork.None) continue;
+
+                if (RadarCanSee(r, target))
+                {
+                    var rangeData = r.GetRange(target);
+                    if (rangeData != null && distToTarget <= rangeData.Distance)
+                        return true;
+                }
+            }
+            return false;
+        }
+
         // =========================================================================================
         // 9. LOW-LEVEL GEOMETRY & RADAR HELPERS
         // =========================================================================================
@@ -1283,7 +1599,7 @@ namespace CecMod
             return true;
         }
 
-        private static bool RadarCanReachMissile(SensorSystemRadar r, Missile m)
+        public static bool RadarCanReachMissile(SensorSystemRadar r, Missile m)
         {
             var mount = r?._mountObject;
             if (mount == null || m == null || m.IsDestroyed) return false;

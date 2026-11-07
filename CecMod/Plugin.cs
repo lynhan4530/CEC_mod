@@ -9,7 +9,7 @@ namespace CecMod
     {
         public const string PluginGuid = "com.cecmod.seapower";
         public const string PluginName = "Sea Power CEC";
-        public const string PluginVersion = "0.2.0";
+        public const string PluginVersion = "0.3.0";
 
         /// <summary>Shared logger for the patches.</summary>
         internal static ManualLogSource Log;
@@ -19,6 +19,7 @@ namespace CecMod
             Log = Logger;
             var harmony = new Harmony(PluginGuid);
             harmony.PatchAll();
+            EgBridge.Initialize(harmony);
             Log.LogInfo($"{PluginName} {PluginVersion} loaded — Cooperative Engagement Capability active.");
         }
     }

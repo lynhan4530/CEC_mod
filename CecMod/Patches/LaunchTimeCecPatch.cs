@@ -83,6 +83,7 @@ namespace CecMod.Patches
                 }
 
                 AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                CecCapability.SyncConsortIlluminatorsToAmmo(__instance, ap);
                 if (ap != null
                     && CecCapability.IsPlatformInAirRadarEmcon(self)
                     && CecCapability.HasRemoteFcrCoverage(self, ap, targetObject))
@@ -180,6 +181,15 @@ namespace CecMod.Patches
                         break;
                     }
                 }
+
+                if (!__result
+                    && ap != null
+                    && __instance._baseObject != null
+                    && CecCapability.HasRemoteFcrCoverage(__instance._baseObject, ap, __instance._targetObject))
+                {
+                    __result = true;
+                }
+
                 return false;
             }
             catch (Exception ex)
@@ -195,6 +205,9 @@ namespace CecMod.Patches
         /// checking radar LOS to the target or EMCON state. If a local radar was chosen that
         /// cannot see the OTH target (or was only auto-enabled from EMCON while a remote CEC
         /// radar is already tracking the target), rebind immediately to the best remote CEC radar.
+        /// Under <c>ExtendedGuidance</c>, preserves active mid-course <c>DatalinkCarrier</c> bindings
+        /// (<c>Hooks.PreferDatalink</c>) whenever the carrier wasn't auto-enabled from EMCON and has
+        /// LOS to the missile.
         /// </summary>
         [HarmonyPatch(typeof(WeaponBase), "ActivateNonLaserGuidanceSystem")]
         [HarmonyPostfix]
@@ -209,16 +222,37 @@ namespace CecMod.Patches
                 if (target == null || m._ap == null || m._weaponSystem?._vwp?._associatedSensors == null)
                     return;
 
+                CecCapability.SyncConsortIlluminatorsToAmmo(m._weaponSystem, m._ap);
+
                 SensorSystemRadar current = m._guidingRadarSystem;
                 ObjectBase launcher = m._launchPlatform;
 
                 bool currentIsLocal = current != null && current._baseObject == launcher;
-                bool currentCanSee = current != null
-                    && current.CanGuideAmmo(m._ap)
-                    && CecCapability.RadarCanSee(current, target);
                 bool currentWasAutoEnabledFromEmcon = currentIsLocal
                     && launcher?._sensorsToTurnOff != null
                     && launcher._sensorsToTurnOff.Contains(current);
+
+                if (EgBridge.IsActive
+                    && current != null
+                    && !current.IsDestroyed
+                    && !current.Inoperable.Value
+                    && current.IsOn.Value
+                    && !currentWasAutoEnabledFromEmcon
+                    && EgBridge.IsDatalinkCarrier(current)
+                    && current.CanGuideAmmo(m._ap)
+                    && CecCapability.RadarCanReachMissile(current, m))
+                {
+                    // Keep the mid-course DatalinkCarrier (e.g. eu_AEGIS_BL9) even if target is OTH;
+                    // ExtendedGuidance.Runtime.Illuminator / HandoffPatch will reserve terminal CW illumination when due.
+                    return;
+                }
+
+                bool currentCanSee = current != null
+                    && !current.IsDestroyed
+                    && !current.Inoperable.Value
+                    && current.IsOn.Value
+                    && current.CanGuideAmmo(m._ap)
+                    && CecCapability.RadarCanSee(current, target);
 
                 if (current != null && currentCanSee && !currentWasAutoEnabledFromEmcon)
                     return;
@@ -252,6 +286,9 @@ namespace CecMod.Patches
 
                 if (bestRemote == null)
                     return;
+
+                if (!bestRemote.IsOn.Value)
+                    bestRemote.Enable(allowMessage: false, turnOffAfterEngage: true);
 
                 if (!bestRemote.IsAimedAtTarget(target))
                     bestRemote.TryToAddTarget(target);

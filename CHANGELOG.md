@@ -2,6 +2,29 @@
 
 All notable changes to **Sea Power CEC (`CecMod`)** are documented in this file.
 
+## [0.3.0] - 2026-11-07
+
+### Compatibility
+- Added full runtime compatibility bridge (`EgBridge`) for Anchor Chain's **`ExtendedGuidance` (`euromod.extended-guidance` v0.10.27, Workshop ID `3784474738`)** with zero compile-time DLL dependency:
+  - Dynamically detects `ExtendedGuidance` whether loaded before or after `CecPlugin.Awake()` (`AppDomain.AssemblyLoad` + live `MissileStatusApi.Active` check) and adapts automatically if toggled via Anchor Chain preferences.
+  - Preserves `ExtendedGuidance` mid-course `DatalinkCarrier` (`eu_AEGIS_BL9`, `SYR-1`, etc.) and delayed time-shared terminal CW/IWI illumination (`Runtime.Illuminator`) when `ExtendedGuidance` is active, while retaining strict synthetic-datalink SARH channel enforcement when `ExtendedGuidance` is disabled.
+
+### Added
+- **Hybrid CEC + `ExtendedGuidance` Cooperative Realism**:
+  - Pre-launch OTH & EMCON gates bridged across `WeaponSystem.CanSearchSensorsSeeTarget`, `WeaponSystem.FCRDetectionRange`, `WeaponSystem.CheckTargetIsDetectableByFCR`, and `ExtendedGuidance.Runtime.PlanningLaunchVisibility` (`FcrAcquisitionAdapter`).
+  - Shared taskforce `PlottingTable` radar measurements bridged into `ExtendedGuidance.Runtime.ReadNativeContact` so OTH, EMCON, and remote-guider launches receive realistic cooperative radar updates during initial INS cueing and mid-course flight.
+  - Consort SARH illuminators (including deferred idle `Targeting` illuminators on non-EMCON consorts) synced to per-vessel `AmmunitionParameters._associatedSensors` and promoted via `HandoffPatch` when terminal illumination is due and own-ship illuminators are horizon-masked, saturated, in EMCON, or sunk.
+  - Batch physics-tick `_launchPlatform` aliasing in `Missile.OnFixedUpdate` (`Priority.First` / `Priority.Last`) so `ExtendedGuidance.Runtime.Prepare` and `RefreshExternal` survive OTH, EMCON, and sunken-launcher scenarios across multi-missile salvos.
+
+### Changed
+- **Unified Guider-Only Bottom-Bar UI (`DatalinkUiPatch`)**:
+  - Replaced `GoodConnection`-only postfix with `ObjectMissileControlViewModel.GetState` (`Priority.First`) + `ObjectState` setter hooks so the active guiding unit is shown across both vanilla Sea Power strings (`GoodConnection`, `BadConnection`, `LostConnection`) and `ExtendedGuidance` 0.25s telemetry rows (including terminal consort illuminator reservations).
+  - Updated display format from `Launcher -> Guider` to show **only the active guider's name**, skipping redundant `PropertyChanged` events during 0.25s refreshes.
+
+### Fixed
+- Updated `RemoteEngagementPatch.CanGuideAmmo_Postfix` to preserve upstream `false` results (respecting `_isDatalinkGuidance` on non-MCC weapons and `_compatibleGuidanceSystems` restrictions) while filtering `true` results through `CecCapability.CanSensorGuideAmmo`.
+- Preserved consort SARH illuminator entries across mixed ARH/SARH salvos (`SM-2` + `SM-6`) by inspecting full launcher/magazine guidance needs in `CecCapability.RefreshConsortRadars`.
+
 ## [0.2.0] - 2026-11-07
 
 ### Compatibility

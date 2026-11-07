@@ -37,6 +37,9 @@ namespace CecMod.Patches
         {
             try
             {
+                if (!__result)
+                    return;
+
                 __result = CecCapability.CanSensorGuideAmmo(__instance, ap);
             }
             catch (Exception ex)
@@ -249,15 +252,16 @@ namespace CecMod.Patches
         }
 
         /// <summary>
-        /// Allows <c>WeaponSystem.IsVisionRequirementMet</c> to succeed for air targets
+        /// Allows <see cref="WeaponSystem.IsVisionRequirementMet"/> to succeed for air targets
         /// when the firing platform is in EMCON or OTH and a cooperative CEC/AWACS radar in the
         /// same network has a live radar track on the target.
         /// </summary>
-        [HarmonyPatch(typeof(WeaponSystem), "IsVisionRequirementMet")]
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.IsVisionRequirementMet))]
         [HarmonyPostfix]
         private static void IsVisionRequirementMet_Postfix(
             WeaponSystem __instance,
             ObjectBase targetObject,
+            ref float guidanceSystemPenalty,
             ObjectBase.SensorRangeOptions options,
             ref bool __result)
         {
@@ -272,11 +276,96 @@ namespace CecMod.Patches
                 if (CecCapability.HasCooperativeAirTrack(__instance._baseObject, targetObject, options))
                 {
                     __result = true;
+                    guidanceSystemPenalty = 0f;
                 }
             }
             catch (Exception ex)
             {
                 CecPlugin.Log.LogError($"[CEC] IsVisionRequirementMet_Postfix exception: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Allows <see cref="WeaponSystem.CanSearchSensorsSeeTarget"/> to succeed for air targets
+        /// during OTH or EMCON cooperative engagements, including when <c>ExtendedGuidance</c>
+        /// (<c>Hooks.LauncherSearchVision</c> / <c>FcrAcquisitionAdapter</c>) overrides vanilla search checks.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.CanSearchSensorsSeeTarget))]
+        [HarmonyPostfix]
+        private static void CanSearchSensorsSeeTarget_Postfix(
+            WeaponSystem __instance,
+            ObjectBase targetObject,
+            ref float guidanceSystemPenalty,
+            ObjectBase.SensorRangeOptions options,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result || __instance == null || __instance._baseObject == null || targetObject == null)
+                    return;
+
+                if (!targetObject.isAirTarget())
+                    return;
+
+                if (CecCapability.HasCooperativeAirTrack(__instance._baseObject, targetObject, options))
+                {
+                    __result = true;
+                    guidanceSystemPenalty = 0f;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] CanSearchSensorsSeeTarget_Postfix exception: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Lifts <see cref="WeaponSystem.FCRDetectionRange"/> during pre-launch OTH / EMCON checks
+        /// (including when <c>ExtendedGuidance.Hooks.FcrRange</c> skips vanilla) when a remote CEC
+        /// ship or AWACS provides compatible FCR / mid-course datalink coverage on the target.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.FCRDetectionRange))]
+        [HarmonyPostfix]
+        private static void FCRDetectionRange_Postfix(
+            WeaponSystem __instance,
+            ObjectBase targetObject,
+            Ammunition ammo,
+            ref ObjectBase.EngagementIssue? issue,
+            ref float __result)
+        {
+            try
+            {
+                if (HandoffPatch.IsCheckingRadioConnection
+                    || __instance == null
+                    || __instance._baseObject == null
+                    || targetObject == null
+                    || ammo == null
+                    || ammo._ap == null)
+                {
+                    return;
+                }
+
+                AmmunitionParameters ap = ammo._ap;
+                bool isSarh = ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
+                bool hasMidCourseDatalink = ap._midCourseCorrection != null
+                                            && ap._midCourseCorrection.AllowsLauncherGuidance;
+                if (!isSarh && !hasMidCourseDatalink)
+                    return;
+
+                float distToTarget = CecCapability.HorizontalDistance(
+                    __instance._baseObject.transform.position,
+                    targetObject.transform.position);
+
+                if (__result < distToTarget
+                    && CecCapability.HasRemoteFcrCoverage(__instance._baseObject, ap, targetObject))
+                {
+                    __result = Mathf.Min(ap._launchRangesInUnity.y, distToTarget + 50f);
+                    issue = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] FCRDetectionRange_Postfix exception: {ex}");
             }
         }
     }
