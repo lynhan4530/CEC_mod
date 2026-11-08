@@ -38,6 +38,10 @@ namespace CecMod
         private static AccessTools.FieldRef<object, SensorSystemRadar> _stateIlluminatorRef;
         private static AccessTools.FieldRef<object, bool> _stateLinkAvailableRef;
         private static AccessTools.FieldRef<object, double> _stateSupportUpdatedRef;
+        private static AccessTools.FieldRef<object, Missile> _stateMissileRef;
+        private static AccessTools.FieldRef<object, ObjectBase> _stateIntendedRef;
+        private static AccessTools.FieldRef<object, ObjectBase> _stateIlluminationTargetRef;
+        private static AccessTools.FieldRef<object, bool> _stateIlluminatorOwnedRef;
 
         /// <summary>
         /// Initializes assembly-load watching so <c>ExtendedGuidance</c> is detected immediately if
@@ -404,6 +408,30 @@ namespace CecMod
                         {
                             _stateSupportUpdatedRef = AccessTools.FieldRefAccess<object, double>(supUpdatedField);
                         }
+
+                        FieldInfo missileField = stateType.GetField("Missile", AllInstance);
+                        if (missileField != null && missileField.FieldType == typeof(Missile))
+                        {
+                            _stateMissileRef = AccessTools.FieldRefAccess<object, Missile>(missileField);
+                        }
+
+                        FieldInfo intendedField = stateType.GetField("Intended", AllInstance);
+                        if (intendedField != null && typeof(ObjectBase).IsAssignableFrom(intendedField.FieldType))
+                        {
+                            _stateIntendedRef = AccessTools.FieldRefAccess<object, ObjectBase>(intendedField);
+                        }
+
+                        FieldInfo illumTargetField = stateType.GetField("IlluminationTarget", AllInstance);
+                        if (illumTargetField != null && typeof(ObjectBase).IsAssignableFrom(illumTargetField.FieldType))
+                        {
+                            _stateIlluminationTargetRef = AccessTools.FieldRefAccess<object, ObjectBase>(illumTargetField);
+                        }
+
+                        FieldInfo illumOwnedField = stateType.GetField("IlluminatorOwned", AllInstance);
+                        if (illumOwnedField != null && illumOwnedField.FieldType == typeof(bool))
+                        {
+                            _stateIlluminatorOwnedRef = AccessTools.FieldRefAccess<object, bool>(illumOwnedField);
+                        }
                     }
                 }
 
@@ -448,6 +476,18 @@ namespace CecMod
                         nameof(ReadNativeContact_Prefix),
                         AllStatic);
                     _harmony.Patch(readContact, prefix: new HarmonyMethod(prefix));
+                }
+
+                // 3. Bridge ExtendedGuidance.Runtime.Illuminator to enforce real-world CEC Forward Pass
+                //    (Mountain Top / NIFC-CA) and prevent ExtendedGuidance from forcefully illuminating
+                //    with a distant shooter or a shooter in radar EMCON.
+                MethodInfo egIlluminator = _runtimeType.GetMethod("Illuminator", AllStatic);
+                if (egIlluminator != null)
+                {
+                    MethodInfo prefix = typeof(EgBridge).GetMethod(
+                        nameof(Illuminator_Prefix),
+                        AllStatic);
+                    _harmony.Patch(egIlluminator, prefix: new HarmonyMethod(prefix));
                 }
 
                 CecPlugin.Log.LogInfo("[CEC] ExtendedGuidance active — hybrid CEC + ExtendedGuidance realism bridge enabled.");
@@ -554,6 +594,133 @@ namespace CecMod
             catch (Exception ex)
             {
                 CecPlugin.Log.LogError($"[CEC] ReadNativeContact_Prefix exception: {ex}");
+            }
+        }
+
+        private static bool Illuminator_Prefix(
+            object s,
+            double now,
+            ref SensorSystemRadar __result)
+        {
+            try
+            {
+                if (!IsActive || s == null || _stateMissileRef == null)
+                    return true;
+
+                Missile m = _stateMissileRef(s);
+                if (m == null || m.IsDestroyed || m._ap == null)
+                    return true;
+
+                if (m._ap._guidanceType != AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
+                    return true;
+
+                ObjectBase target = (_stateIntendedRef != null ? _stateIntendedRef(s) : null)
+                                    ?? m.CurrentIntendedTargetObject;
+                if (target == null || target.IsDestroyed)
+                {
+                    ReleaseEgIlluminatorInternal(s, m);
+                    __result = null;
+                    return false;
+                }
+
+                if (!IsTerminalIlluminationDue(m))
+                {
+                    ReleaseEgIlluminatorInternal(s, m);
+                    __result = null;
+                    return false;
+                }
+
+                SensorSystemRadar activeIllum = _stateIlluminatorRef != null ? _stateIlluminatorRef(s) : null;
+
+                SensorSystemRadar bestIllum = CecCapability.FindHandoffRadar(m, requireTerminalIlluminator: true);
+
+                if (bestIllum == null)
+                {
+                    if (activeIllum != null
+                        && activeIllum.IsOn.Value
+                        && !activeIllum.Inoperable.Value
+                        && activeIllum._baseObject != null
+                        && !activeIllum._baseObject.IsDestroyed
+                        && !CecCapability.IsPlatformInAirRadarEmcon(activeIllum._baseObject)
+                        && CecCapability.RadarCanSee(activeIllum, target))
+                    {
+                        __result = activeIllum;
+                        return false;
+                    }
+
+                    ReleaseEgIlluminatorInternal(s, m);
+                    __result = null;
+                    return false;
+                }
+
+                if (activeIllum != null && activeIllum != bestIllum)
+                {
+                    activeIllum.FreeChannels(target, m);
+                }
+
+                if (!bestIllum.IsOn.Value)
+                {
+                    bestIllum.Enable(allowMessage: false, turnOffAfterEngage: true);
+                    bestIllum.IsOn.Value = true;
+                }
+
+                if (!bestIllum._associatedTargets.Contains(target))
+                {
+                    bestIllum.setTargetObject(target);
+                    bestIllum._associatedTargets.Add(target);
+                }
+                if (!bestIllum._associatedWeapons.Contains(m))
+                {
+                    bestIllum._associatedWeapons.Add(m);
+                }
+
+                bestIllum._isGuiding = true;
+                bestIllum._restPositionReached = false;
+                bestIllum._preLaunchTargetObject = null;
+                bestIllum.setTargetObject(target);
+
+                m._guidingRadarSystem = bestIllum;
+                m._seeker?.setGuidingSystem(bestIllum);
+                m._seeker?.setCurrentTarget(target);
+
+                if (_stateIlluminatorRef != null)
+                    _stateIlluminatorRef(s) = bestIllum;
+                if (_stateIlluminationTargetRef != null)
+                    _stateIlluminationTargetRef(s) = target;
+                if (_stateIlluminatorOwnedRef != null)
+                    _stateIlluminatorOwnedRef(s) = true;
+
+                __result = bestIllum;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] EgBridge.Illuminator_Prefix exception: {ex}");
+                return true;
+            }
+        }
+
+        private static void ReleaseEgIlluminatorInternal(object s, Missile m)
+        {
+            if (s == null) return;
+            try
+            {
+                SensorSystemRadar illum = _stateIlluminatorRef != null ? _stateIlluminatorRef(s) : null;
+                ObjectBase target = _stateIlluminationTargetRef != null ? _stateIlluminationTargetRef(s) : null;
+                bool owned = _stateIlluminatorOwnedRef != null && _stateIlluminatorOwnedRef(s);
+
+                if (owned && illum != null && target != null && m != null)
+                {
+                    illum.FreeChannels(target, m);
+                }
+
+                if (_stateIlluminatorRef != null) _stateIlluminatorRef(s) = null;
+                if (_stateIlluminatorOwnedRef != null) _stateIlluminatorOwnedRef(s) = false;
+                if (_stateIlluminationTargetRef != null) _stateIlluminationTargetRef(s) = null;
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogDebug($"[CEC] ReleaseEgIlluminatorInternal error: {ex.Message}");
             }
         }
     }

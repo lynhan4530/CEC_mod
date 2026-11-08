@@ -30,6 +30,7 @@ All notable changes to **Sea Power CEC (`CecMod`)** are documented in this file.
   - **Deliberate Tactical Handoff & Survivor Takeover**:
     - Standby CW illuminators (e.g. `SPG-62`) immediately promoted and energized on consort takeovers, resolving Unity frame delays and channel allocation aborts.
     - Recovered dead-reckoning missiles on stale datalink (`DL STALE`) when the shooting ship is destroyed, jammed, or enters radar EMCON, transferring guidance mid-course to healthy cooperators.
+    - Intercepted `ExtendedGuidance.Runtime.Illuminator` to enforce real-world CEC Forward Pass (Mountain Top / NIFC-CA) and prevent ExtendedGuidance from forcefully illuminating with a distant shooter or a shooter in radar EMCON (`Emcon.Value == true`), ensuring forward consorts illuminate when closer to the target.
   - **HUD Missile Control Panel Telemetry**:
     - Upgraded datalink telemetry to include both contact ID and clean platform model/name (e.g. `From 1001 (DDG-51 Arleigh Burke) / 1.7 s` and `Illum: 1004 (CG-67 Shiloh)`).
     - Preserved native Sea Power formatting when ExtendedGuidance is inactive (`Link to [1005] E-2D VAW-113 [NIFC-CA / USG-3 | Tier 1]`).

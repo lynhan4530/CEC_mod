@@ -215,6 +215,8 @@ namespace CecMod.Patches
 
                 SensorSystemRadar currentRadar = __instance._guidingRadarSystem;
                 ObjectBase launcher = __instance._launchPlatform;
+                ObjectBase guiderPlatform = currentRadar?._baseObject ?? launcher;
+
                 bool currentRadarDead = currentRadar == null
                                         || currentRadar.IsDestroyed
                                         || currentRadar.Inoperable.Value
@@ -223,37 +225,33 @@ namespace CecMod.Patches
                                         || currentRadar._baseObject.IsDestroyed
                                         || (currentRadar._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(currentRadar._baseObject));
 
-                bool launcherDead = launcher == null || launcher.IsDestroyed || CecCapability.IsPlatformInAirRadarEmcon(launcher);
-                bool launcherBlind = !launcherDead && !CecCapability.HasLocalRadarSight(launcher, target);
+                bool guiderDead = guiderPlatform == null || guiderPlatform.IsDestroyed || CecCapability.IsPlatformInAirRadarEmcon(guiderPlatform);
+                bool guiderBlind = !guiderDead && !CecCapability.HasLocalRadarSight(guiderPlatform, target);
                 bool egStale = EgBridge.IsActive && EgBridge.IsDatalinkStaleOrLost(__instance);
 
                 // Under ExtendedGuidance, a SARH+Datalink missile flying mid-course on an operational
                 // DatalinkCarrier (eu_AEGIS_BL9, SYR-1, etc.) before terminal illumination is due is healthy
-                // only if the link is not stale/lost and the launcher is still alive and tracking.
-                if (!currentRadarDead && !launcherDead && !launcherBlind && !egStale && EgBridge.IsWaitingForTerminalIllumination(__instance))
+                // only if the link is not stale/lost and the guider is still alive and tracking.
+                if (!currentRadarDead && !guiderDead && !guiderBlind && !egStale && EgBridge.IsWaitingForTerminalIllumination(__instance))
                     return;
 
                 bool isTerminalWindow = EgBridge.IsActive
                     ? EgBridge.IsTerminalIlluminationDue(__instance)
                     : (__instance.getFlightStage() == WeaponBase.FlightStage.TerminalApproach);
 
-                // Under ExtendedGuidance, when terminal SARH illumination IS due on a DatalinkCarrier,
-                // check if ExtendedGuidance already reserved an illuminator or own-ship can illuminate;
-                // if not (OTH, horizon-masked, saturated, EMCON, or sunk), promote to a forward consort illuminator.
-                bool needsTerminalPromotion = EgBridge.IsActive
-                                              && isSarh
-                                              && !currentRadarDead
-                                              && !__instance.ConnectionLost.Value
-                                              && EgBridge.IsDatalinkCarrier(currentRadar)
-                                              && isTerminalWindow
-                                              && EgBridge.GetActiveEgIlluminator(__instance) == null
-                                              && !HasOwnShipIlluminatorForTarget(__instance, target);
+                bool isForwardPass = isSarh && isTerminalWindow && launcher != null && !launcher.IsDestroyed;
+
+                // When terminal SARH illumination is due on a DatalinkCarrier or during Forward Pass:
+                // Check if consort promotion is required (distant shooter, shooter in EMCON, or survivor takeover).
+                bool needsTerminalPromotion = (isSarh && isTerminalWindow)
+                                              && (!EgBridge.IsActive || EgBridge.IsDatalinkCarrier(currentRadar) || EgBridge.GetActiveEgIlluminator(__instance) == null)
+                                              && (currentRadarDead || guiderDead || guiderBlind || isForwardPass);
 
                 bool linkBroken = __instance.ConnectionLost.Value
                                   || __instance.ConnectionLostForever.Value
                                   || currentRadarDead
-                                  || launcherDead
-                                  || launcherBlind
+                                  || guiderDead
+                                  || guiderBlind
                                   || egStale;
 
                 if (!linkBroken && !needsTerminalPromotion)
@@ -276,7 +274,7 @@ namespace CecMod.Patches
                 SensorSystemRadar newRadar = CecCapability.FindHandoffRadar(
                     __instance,
                     requireTerminalIlluminator: requireIllum);
-                if (newRadar == null)
+                if (newRadar == null || newRadar == currentRadar)
                     return;
 
                 if (!newRadar.IsOn.Value)

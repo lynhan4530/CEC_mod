@@ -423,7 +423,11 @@ namespace CecMod
 
         public static bool IsPlatformInAirRadarEmcon(ObjectBase platform)
         {
-            var radars = platform?._obp?._airSearchRadars;
+            if (platform == null) return false;
+            if (platform.Emcon != null && platform.Emcon.Value) return true;
+            if (platform.IsAirSearchRadarsOn != null && !platform.IsAirSearchRadarsOn.Value) return true;
+
+            var radars = platform._obp?._airSearchRadars;
             if (radars != null && radars.Count > 0)
             {
                 for (int i = 0; i < radars.Count; i++)
@@ -439,7 +443,11 @@ namespace CecMod
 
         public static bool IsPlatformInSurfaceRadarEmcon(ObjectBase platform)
         {
-            var radars = platform?._obp?._surfaceSearchRadars;
+            if (platform == null) return false;
+            if (platform.Emcon != null && platform.Emcon.Value) return true;
+            if (platform.IsSurfaceSearchRadarsOn != null && !platform.IsSurfaceSearchRadarsOn.Value) return true;
+
+            var radars = platform._obp?._surfaceSearchRadars;
             if (radars != null && radars.Count > 0)
             {
                 for (int i = 0; i < radars.Count; i++)
@@ -682,7 +690,7 @@ namespace CecMod
             return true;
         }
 
-        public static bool CanPerformMidCourseHandoff(Missile m, SensorSystemRadar candidateRadar)
+        public static bool CanPerformMidCourseHandoff(Missile m, SensorSystemRadar candidateRadar, bool requireTerminalIlluminator = false)
         {
             if (m == null || m.IsDestroyed || candidateRadar == null)
                 return false;
@@ -696,6 +704,10 @@ namespace CecMod
             if (candidateHost == null || candidateHost.IsDestroyed)
                 return false;
 
+            // Platforms in EMCON cannot emit or guide weapons
+            if (IsPlatformInAirRadarEmcon(candidateHost))
+                return false;
+
             if (shooter != null)
             {
                 InteractionTier tier = EvaluateInteraction(shooter, candidateHost);
@@ -703,6 +715,17 @@ namespace CecMod
                     && tier != InteractionTier.Tier2_MidcourseRescue
                     && tier != InteractionTier.SatcomGlobal
                     && tier != InteractionTier.Tier1_IntraFlightOnly)
+                {
+                    return false;
+                }
+
+                // Third-party Forward Pass terminal illumination while shooter is alive and not in EMCON
+                // strictly requires Tier 1 Full CEC (USG-2/3 NIFC-CA or PLA JSIDLS). Tier 2 (Link 16) is mid-course cue only.
+                if (requireTerminalIlluminator
+                    && candidateHost != shooter
+                    && !shooter.IsDestroyed
+                    && !IsPlatformInAirRadarEmcon(shooter)
+                    && tier != InteractionTier.Tier1_FullCec)
                 {
                     return false;
                 }
@@ -730,7 +753,8 @@ namespace CecMod
             if (!RadarCanSee(candidateRadar, target))
                 return false;
 
-            if (!RadarCanReachMissile(candidateRadar, m))
+            // Mid-course datalink requires reaching the missile; terminal SARH illuminates the target
+            if (!requireTerminalIlluminator && !RadarCanReachMissile(candidateRadar, m))
                 return false;
 
             bool isSarh = m._ap?._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming
@@ -793,6 +817,7 @@ namespace CecMod
             void CheckCooperator(ObjectBase cooperator)
             {
                 if (cooperator == null || cooperator.IsDestroyed) return;
+                if (IsPlatformInAirRadarEmcon(cooperator)) return;
                 var systems = cooperator._obp?._sensorSystems;
                 if (systems == null) return;
 
@@ -801,7 +826,7 @@ namespace CecMod
                     if (!(systems[i] is SensorSystemRadar r)) continue;
                     if (requireTerminalIlluminator && (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)))
                         continue;
-                    if (!CanPerformMidCourseHandoff(missile, r))
+                    if (!CanPerformMidCourseHandoff(missile, r, requireTerminalIlluminator))
                         continue;
 
                     float distSq = (r._mountObject.transform.position - target.transform.position).sqrMagnitude;
