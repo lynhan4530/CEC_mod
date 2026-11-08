@@ -2,6 +2,8 @@
 CecMod/obj/Debug/
 *.tmp
 *.log
+__pycache__/
+*.pyc
 
 # Large decompilation dumps
 scratch/il_code.txt

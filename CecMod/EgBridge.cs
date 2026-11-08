@@ -36,6 +36,8 @@ namespace CecMod
         private static FastInvokeHandler _getStateInvoker;
         private static FastInvokeHandler _terminalDueInvoker;
         private static AccessTools.FieldRef<object, SensorSystemRadar> _stateIlluminatorRef;
+        private static AccessTools.FieldRef<object, bool> _stateLinkAvailableRef;
+        private static AccessTools.FieldRef<object, double> _stateSupportUpdatedRef;
 
         /// <summary>
         /// Initializes assembly-load watching so <c>ExtendedGuidance</c> is detected immediately if
@@ -179,6 +181,29 @@ namespace CecMod
         }
 
         /// <summary>
+        /// Explicitly syncs the active terminal illuminator into <c>ExtendedGuidance.State.Illuminator</c>
+        /// when a mid-flight CEC handoff or terminal promotion assigns a consort radar.
+        /// </summary>
+        public static void SetActiveEgIlluminator(Missile m, SensorSystemRadar illuminator)
+        {
+            if (!IsActive || m == null || _getStateInvoker == null || _stateIlluminatorRef == null)
+                return;
+
+            try
+            {
+                object state = _getStateInvoker(null, m, false);
+                if (state != null)
+                {
+                    _stateIlluminatorRef(state) = illuminator;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogDebug($"[CEC] EgBridge.SetActiveEgIlluminator reflection fallback: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// True when <c>ExtendedGuidance</c> determines that <paramref name="m"/> has reached the
         /// terminal SARH illumination window (<c>Runtime.TerminalIlluminationDue</c>).
         /// </summary>
@@ -228,6 +253,45 @@ namespace CecMod
                 return false;
 
             return !IsTerminalIlluminationDue(m);
+        }
+
+        /// <summary>
+        /// True when <c>ExtendedGuidance</c> has marked the missile's datalink as lost (<c>!LinkAvailable</c>)
+        /// or stale (support track age > 4.0 seconds without fresh radar measurement).
+        /// </summary>
+        public static bool IsDatalinkStaleOrLost(Missile m)
+        {
+            if (!IsActive || m == null)
+                return false;
+
+            if (m.ConnectionLost.Value || m.ConnectionLostForever.Value)
+                return true;
+
+            if (_getStateInvoker == null)
+                return false;
+
+            try
+            {
+                object state = _getStateInvoker(null, m, false);
+                if (state == null)
+                    return false;
+
+                if (_stateLinkAvailableRef != null && !_stateLinkAvailableRef(state))
+                    return true;
+
+                if (_stateSupportUpdatedRef != null)
+                {
+                    double supUpdated = _stateSupportUpdatedRef(state);
+                    if (supUpdated > 0 && GameTime.missionElapsedTime - supUpdated > 4.0)
+                        return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogDebug($"[CEC] EgBridge.IsDatalinkStaleOrLost fallback: {ex.Message}");
+            }
+
+            return false;
         }
 
         private static void EnsureBound()
@@ -328,6 +392,18 @@ namespace CecMod
                         {
                             _stateIlluminatorRef = AccessTools.FieldRefAccess<object, SensorSystemRadar>(illumField);
                         }
+
+                        FieldInfo linkAvailField = stateType.GetField("LinkAvailable", AllInstance);
+                        if (linkAvailField != null && linkAvailField.FieldType == typeof(bool))
+                        {
+                            _stateLinkAvailableRef = AccessTools.FieldRefAccess<object, bool>(linkAvailField);
+                        }
+
+                        FieldInfo supUpdatedField = stateType.GetField("SupportUpdated", AllInstance);
+                        if (supUpdatedField != null && supUpdatedField.FieldType == typeof(double))
+                        {
+                            _stateSupportUpdatedRef = AccessTools.FieldRefAccess<object, double>(supUpdatedField);
+                        }
                     }
                 }
 
@@ -420,8 +496,7 @@ namespace CecMod
                 if (__result >= requiredVisibility)
                     return;
 
-                if (CecCapability.HasCooperativeAirTrack(host, target, options)
-                    && CecCapability.HasRemoteFcrCoverage(host, ap, target))
+                if (CecCapability.CanPerformLaunchOnRemote(host, ap, target))
                 {
                     __result = Mathf.Max(distToTarget + 50f, 25f);
                 }
@@ -467,9 +542,10 @@ namespace CecMod
                 }
 
                 // Launcher is guiding on its own DatalinkCarrier (e.g. eu_AEGIS_BL9), but own-ship air radars
-                // are in EMCON or horizon-blocked (OTH) while a cooperative CEC/AWACS unit holds the track.
+                // are in EMCON or horizon-blocked (OTH). Allow consuming the cooperative taskforce track
+                // only if the platform and missile qualify for Launch-on-Remote.
                 if (!CecCapability.HasLocalRadarSight(launcher, target)
-                    && CecCapability.HasCooperativeTrack(launcher, target))
+                    && CecCapability.CanPerformLaunchOnRemote(launcher, ap, target))
                 {
                     guide = null;
                     weapon = null;

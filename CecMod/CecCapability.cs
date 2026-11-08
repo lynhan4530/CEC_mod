@@ -7,9 +7,9 @@ using UnityEngine;
 namespace CecMod
 {
     /// <summary>
-    /// Real-world Cooperative Engagement Capability (CEC), NIFC-CA, NATO APAR/PAAMS,
-    /// Soviet/Russian Fort/Poliment-Redut/Zaslon, and PLA/PLAN "A-Shoot-B-Guide" network engine
-    /// for Sea Power 0.8.7+.
+    /// Real-world Cooperative Engagement Capability (CEC), NIFC-CA, NATO Link 16 / Link 11,
+    /// Soviet/Russian Fort/Poliment-Redut/Zaslon/TKS-2, and PLA/PLAN JSIDLS/HN-900 multi-tier
+    /// qualification and combat datalink network engine for Sea Power.
     /// </summary>
     internal static class CecCapability
     {
@@ -37,33 +37,7 @@ namespace CecMod
             PlaJoint = PlanNaval | PlaAir
         }
 
-        /// <summary>
-        /// RF / waveform compatibility families for Semi-Active Radar Homing (SARH) terminal illumination.
-        /// SARH seekers require a physically compatible CW / TVM / command-SARH fire-control radar and
-        /// can never be terminally illuminated by a synthetic datalink transceiver or UHF/L/S-band AWACS.
-        /// </summary>
-        public enum SarhIllumFamily
-        {
-            None = 0,
-            /// <summary>US / NATO X-band CW ICWI &amp; dish illuminators (SM-1/SM-2, RIM-7/ESSM Blk 1).</summary>
-            UsNatoXBandCw = 1,
-            /// <summary>Soviet / Russian S-300F/FM Fort TVM / X-band phased-array FCR (5V55RM, 48N6 series).</summary>
-            RuFortTvm = 2,
-            /// <summary>Soviet / Russian Uragan / Shtil-1 CW illuminators (9M38, 9M317).</summary>
-            RuShtilCw = 3,
-            /// <summary>PLAN HHQ-9 / HQ-9 S/C/X-band Track-via-Missile / SARH+RC multifunction arrays.</summary>
-            PlanHhq9 = 4,
-            /// <summary>PLAN HHQ-16 / HQ-16A X-band CW illuminators (LJG-316 / Front Dome).</summary>
-            PlanHhq16 = 5,
-            /// <summary>MiG-31 Zaslon PESA cooperative SARH illumination (R-33 / AA-9 Amos).</summary>
-            RuZaslonPesa = 6
-        }
-
-        /// <summary>Surface-to-surface line-of-sight DDS/datalink cap (~60 nmi; radio horizon is typically 25-40 nmi).</summary>
-        public const float SurfaceNetRangeCapUnits = 60f * 27.559496f;
-
-        /// <summary>Airborne (AWACS / fighter) line-of-sight datalink cap (~300 nmi; 4/3-earth horizon at 30,000 ft is ~225 nmi).</summary>
-        public const float AirborneNetRangeCapUnits = 300f * 27.559496f;
+        private const string P2027Suffix = " (P2027)";
 
         private static readonly ConditionalWeakTable<WeaponSystem, HashSet<SensorSystem>> _injectedSensors =
             new ConditionalWeakTable<WeaponSystem, HashSet<SensorSystem>>();
@@ -71,427 +45,13 @@ namespace CecMod
         private static readonly ConditionalWeakTable<WeaponSystem, HashSet<string>> _injectedExternalNames =
             new ConditionalWeakTable<WeaponSystem, HashSet<string>>();
 
-        // =========================================================================================
-        // 1. SYNTHETIC DATALINK TRANSCEIVERS (Mode=RadioCommand combat system / uplink proxies)
-        //    - CAN guide Active Radar Homing (ARH) / IIR mid-course datalink weapons
-        //    - CANNOT terminally illuminate Semi-Active Radar Homing (SARH) weapons!
-        // =========================================================================================
-        private static readonly HashSet<string> SyntheticDatalinkSensors = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "SYR-1", "SYR-1_NTU", "SYS-1", "SYS-2", "SPW-2",
-            "eu_AEGIS_BL5", "eu_AEGIS_BL9", "eu_AEGIS_BL10",
-            "eu_2T_Datalink", "eu_UYK-43", "eu_UYK-44", "eu_UYK-44B",
-            "eu_tacticalpcgen1", "eu_tacticalpcgen2", "eu_tacticalpcgen3",
-            "eu_JUWL", "eu_aster_datalink",
-            "eu_EMPAR_2", "eu_KRONOS_guidance", "eu_MFRA_guidance", "eu_SAMPSON_guidance", "EMPAR_2",
-            "spa_SCOMBA_v1", "DD115_TacticalDatalink", "Mk92_Mod12_MCG", "LJG-318",
-            "Link-16_Receiver", "eu_GPS_Receiver", "F16_GPS_Link", "IAF_GPS_Link", "GPS_Link", "WZ-8_Datalink"
-        };
-
-        // Pure CW illuminator dishes that only perform terminal SARH illumination (no mid-course ARH datalink)
-        // when the platform also has a dedicated datalink/MFR sensor in _associatedSensors.
-        private static readonly HashSet<string> PureCwDishIlluminators = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "SPG-62", "eu_SPG-62", "SPG-55", "SPG-55B", "SPG-51", "SPG-51D",
-            "MK-95", "MK-115", "MK92_FCS", "MK92_Mod6_FCS", "MK92_Mod12_FCS",
-            "eu_CEROS-200_CWI", "dk_iver_CEROS-200_CWI",
-            "eu_stir120", "eu_stir180", "eu_stir240", "Stir", "STIR-180", "STIR-240",
-            "Front_Dome", "rfn_mr90", "rfn_3r90m", "LJG-316"
-        };
+        private static readonly ConditionalWeakTable<Aircraft, ObjectBase> _flightGroupLeaders =
+            new ConditionalWeakTable<Aircraft, ObjectBase>();
 
         // =========================================================================================
-        // 2. AWACS / AEW&C RADARS (Track providers & ARH mid-course datalink uplinks)
-        // =========================================================================================
-        private static readonly Dictionary<string, CecNetwork> AwacsRadars = new Dictionary<string, CecNetwork>(StringComparer.OrdinalIgnoreCase)
-        {
-            // US / Allied / NATO AEW&C (E-2C/D Hawkeye, E-3 Sentry, E-7A Wedgetail, Saab GlobalEye)
-            { "AN/APS-125", CecNetwork.WesternJoint },
-            { "AN/APS-138", CecNetwork.WesternJoint },
-            { "AN/APS-145", CecNetwork.WesternJoint },
-            { "eu_AN/APS-145", CecNetwork.WesternJoint },
-            { "AN/APY-9", CecNetwork.WesternJoint },
-            { "AN/APY-1", CecNetwork.WesternJoint },
-            { "AN/APY-2", CecNetwork.WesternJoint },
-            { "AEWC_AN_APY_2", CecNetwork.WesternJoint },
-            { "MESA", CecNetwork.WesternJoint },
-            { "AEWC_MESA", CecNetwork.WesternJoint },
-            { "Erieye_ER", CecNetwork.WesternJoint },
-            { "GE_ERIEYE_ER", CecNetwork.WesternJoint },
-            { "Searchwater", CecNetwork.WesternJoint },
-            { "Searchwater_asac", CecNetwork.WesternJoint },
-            { "Thorn EMI Searchwater", CecNetwork.WesternJoint },
-
-            // Soviet / Russian AEW&C (A-50 Shmel, A-50U Shmel-M, Ka-31 E-801E Oko)
-            { "N035_Shmel", CecNetwork.RuJoint },
-            { "N035M_Shmel-M", CecNetwork.RuJoint },
-            { "Shmel-M", CecNetwork.RuJoint },
-            { "E-801E", CecNetwork.RuNaval | CecNetwork.PlanNaval },
-
-            // PLA / PLAN AEW&C (KJ-500, KJ-600, KJ-2000, KJ-3000, Z-18J)
-            { "KLC-500", CecNetwork.PlaJoint },
-            { "KLC-600", CecNetwork.PlaJoint },
-            { "KLC-600_low-band_mode", CecNetwork.PlaJoint },
-            { "KJ3000_Aircraft_Radar", CecNetwork.PlaJoint },
-            { "KJ-3000 AESA", CecNetwork.PlaJoint },
-            { "KLC-4", CecNetwork.PlaJoint },
-            { "Z18_AEW_Radar", CecNetwork.PlaJoint }
-        };
-
-        // =========================================================================================
-        // 3. SARH TERMINAL ILLUMINATOR FAMILIES (Radar _systemName -> SarhIllumFamily)
-        // =========================================================================================
-        private static readonly Dictionary<string, SarhIllumFamily> RadarSarhFamilies = new Dictionary<string, SarhIllumFamily>(StringComparer.OrdinalIgnoreCase)
-        {
-            // US / NATO / Allied X-Band CW & ICWI Illuminators
-            { "SPG-62", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_SPG-62", SarhIllumFamily.UsNatoXBandCw },
-            { "SPG-55", SarhIllumFamily.UsNatoXBandCw },
-            { "SPG-55B", SarhIllumFamily.UsNatoXBandCw },
-            { "SPG-51", SarhIllumFamily.UsNatoXBandCw },
-            { "SPG-51D", SarhIllumFamily.UsNatoXBandCw },
-            { "SPG-60", SarhIllumFamily.UsNatoXBandCw },
-            { "MK92_FCS", SarhIllumFamily.UsNatoXBandCw },
-            { "MK92_Mod6_FCS", SarhIllumFamily.UsNatoXBandCw },
-            { "MK92_Mod12_FCS", SarhIllumFamily.UsNatoXBandCw },
-            { "MK-95", SarhIllumFamily.UsNatoXBandCw },
-            { "MK-115", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_apar", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_apar_block2", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_stir120", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_stir180", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_stir240", SarhIllumFamily.UsNatoXBandCw },
-            { "Stir", SarhIllumFamily.UsNatoXBandCw },
-            { "STIR-180", SarhIllumFamily.UsNatoXBandCw },
-            { "STIR-240", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_CEROS-200_CWI", SarhIllumFamily.UsNatoXBandCw },
-            { "dk_iver_CEROS-200_CWI", SarhIllumFamily.UsNatoXBandCw },
-            { "WM25_FCS", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_wm25", SarhIllumFamily.UsNatoXBandCw },
-            { "CEAFAR", SarhIllumFamily.UsNatoXBandCw },
-            { "CEAFAR2_X", SarhIllumFamily.UsNatoXBandCw },
-            { "DD115_FCS3A_Guidance", SarhIllumFamily.UsNatoXBandCw },
-            { "DD115_FCS3A_Search", SarhIllumFamily.UsNatoXBandCw },
-            { "hyuga_FCS3_Guidance", SarhIllumFamily.UsNatoXBandCw },
-            { "hyuga_FCS3_Search", SarhIllumFamily.UsNatoXBandCw },
-            { "eu_OPY-1", SarhIllumFamily.UsNatoXBandCw },
-            { "FFM_Multifunction_Radar_Proxy", SarhIllumFamily.UsNatoXBandCw },
-
-            // Soviet / Russian S-300F/FM Fort / Rif & S-300/S-400 (5V55RM, 48N6 series)
-            { "Top_Dome", SarhIllumFamily.RuFortTvm },
-            { "Top Dome", SarhIllumFamily.RuFortTvm },
-            { "30N6E1_FCR", SarhIllumFamily.RuFortTvm },
-            { "30N6E2", SarhIllumFamily.RuFortTvm },
-            { "rfn_30n6e2", SarhIllumFamily.RuFortTvm },
-            { "rfn_92n6e", SarhIllumFamily.RuFortTvm },
-            { "Big_Bird", SarhIllumFamily.RuFortTvm },
-            { "91N6E", SarhIllumFamily.RuFortTvm },
-
-            // Soviet / Russian Uragan / Shtil-1 (9M38, 9M317, 9M317M)
-            { "Front_Dome", SarhIllumFamily.RuShtilCw },
-            { "rfn_mr90", SarhIllumFamily.RuShtilCw },
-            { "rfn_3r90m", SarhIllumFamily.RuShtilCw },
-
-            // PLAN HHQ-9 / HQ-9 (Type 346 / LJG-346 series)
-            { "LJG-346", SarhIllumFamily.PlanHhq9 },
-            { "LJG-346A", SarhIllumFamily.PlanHhq9 },
-            { "LJG-346B", SarhIllumFamily.PlanHhq9 },
-            { "LJQ-346B", SarhIllumFamily.PlanHhq9 },
-            { "Type_346", SarhIllumFamily.PlanHhq9 },
-            { "Type_346A", SarhIllumFamily.PlanHhq9 },
-            { "Type_346B", SarhIllumFamily.PlanHhq9 },
-            { "Type 346", SarhIllumFamily.PlanHhq9 },
-            { "Type 346A", SarhIllumFamily.PlanHhq9 },
-            { "Type 346B", SarhIllumFamily.PlanHhq9 },
-            { "HT-233", SarhIllumFamily.PlanHhq9 },
-            { "HT-233_AESA", SarhIllumFamily.PlanHhq9 },
-
-            // PLAN HHQ-16 / HQ-16 (LJG-316 / Front Dome)
-            { "LJG-316", SarhIllumFamily.PlanHhq16 },
-
-            // Soviet / Russian MiG-31 Zaslon PESA (R-33 / AA-9)
-            { "Zaslon", SarhIllumFamily.RuZaslonPesa },
-            { "Zaslon-M", SarhIllumFamily.RuZaslonPesa },
-            { "Zaslon_Targeting", SarhIllumFamily.RuZaslonPesa },
-            { "Zaslon-M_Targeting", SarhIllumFamily.RuZaslonPesa }
-        };
-
-        // =========================================================================================
-        // 4. RADAR -> CEC NETWORK MEMBERSHIP (Search, Multifunction, FCR, Datalink & Fighter Radars)
-        // =========================================================================================
-        private static readonly Dictionary<string, CecNetwork> RadarNetworks = new Dictionary<string, CecNetwork>(StringComparer.OrdinalIgnoreCase)
-        {
-            // --- US / Allied AEGIS, NTU, CEC & NIFC-CA ---
-            { "SPY-1A", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "SPY-1B", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "SPY-1D", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "KG_R2_SPY1D", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "SPY-3", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "SPY-4", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1A", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1A(V)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1B", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1B(BMD)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1B(V)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1D", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1D(BMD)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1D(V)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1E", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1F", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1F(V)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-1K", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "eu_SPY-3", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-4", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-5", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-6(V1)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-6(V2)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-6(V3)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-6(V4)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-7(V1)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-7(V2)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-7(V3)", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_SPY-7_LRDR", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "SPS-48", CecNetwork.UsAlliedNaval },
-            { "SPS-48E", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "SPS-49", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "SPS-49V5", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "SPS-49V8", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "SPS-49A(V)1", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "SPS-52", CecNetwork.UsAlliedNaval },
-            { "SPS-550K", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "AN/MPQ-53", CecNetwork.WesternJoint },
-            { "AN/MPQ-53_mi", CecNetwork.WesternJoint },
-            { "AN/MPQ-65", CecNetwork.WesternJoint },
-            { "AN/MPQ-65_mi", CecNetwork.WesternJoint },
-            { "SPG-62", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "eu_SPG-62", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "SPG-55", CecNetwork.UsAlliedNaval },
-            { "SPG-55B", CecNetwork.UsAlliedNaval },
-            { "SPG-51", CecNetwork.UsAlliedNaval },
-            { "SPG-51D", CecNetwork.UsAlliedNaval },
-            { "MK92_FCS", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "MK92_Mod6_FCS", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "MK92_Mod12_FCS", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "MK-95", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "MK-115", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "SYR-1", CecNetwork.UsAlliedNaval },
-            { "SYR-1_NTU", CecNetwork.UsAlliedNaval },
-            { "SYS-1", CecNetwork.UsAlliedNaval },
-            { "SYS-2", CecNetwork.UsAlliedNaval },
-            { "eu_AEGIS_BL5", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "eu_AEGIS_BL9", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "eu_AEGIS_BL10", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "spa_SCOMBA_v1", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "CEAFAR", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "CEAFAR2_L", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir },
-            { "CEAFAR2_X", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
-            { "DD115_FCS3A_Search", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "DD115_FCS3A_Guidance", CecNetwork.UsAlliedNaval },
-            { "DD115_TacticalDatalink", CecNetwork.UsAlliedNaval },
-            { "hyuga_FCS3_Search", CecNetwork.UsAlliedNaval },
-            { "hyuga_FCS3_Guidance", CecNetwork.UsAlliedNaval },
-            { "eu_OPY-1", CecNetwork.UsAlliedNaval },
-            { "FFM_Multifunction_Radar_Proxy", CecNetwork.UsAlliedNaval },
-
-            // --- NATO / European APAR, PAAMS, Sea Ceptor & Link 16 ---
-            { "eu_apar", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "eu_apar_block2", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "eu_smart_l", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_smart_l_mm", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_smart_l_S1850M", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_SMART-L", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_SMART-L_S1850M", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "SMART-L", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "S1850M", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_SAMPSON", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "eu_SAMPSON_guidance", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "EMPAR", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "EMPAR_2", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_EMPAR", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_EMPAR_2", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_MFRA", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_MFRA_guidance", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_KRONOS_c", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_KRONOS_x", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_KRONOS_s", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_KRONOS_l", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_KRONOS_guidance", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "Herakles", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "Herakles+", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_Herakles", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_Herakles+", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "Sea_fire_500", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "eu_Sea-fire-500", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "ARABEL", CecNetwork.NatoEuroNaval },
-            { "eu_ARABEL", CecNetwork.NatoEuroNaval },
-            { "Artisan3D", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_Type_997", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_TRS-3D_16", CecNetwork.NatoEuroNaval },
-            { "eu_TRS-3D_20", CecNetwork.NatoEuroNaval },
-            { "eu_TRS-3D_32", CecNetwork.NatoEuroNaval },
-            { "eu_TRS-4D_NR", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_TRS-4D_Rot", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_TRS-4D_LR_Rot", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_SeaGiraffe_4A", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_SeaGiraffe_4A_NR", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_SeaGiraffe_AMB_3D", CecNetwork.NatoEuroNaval },
-            { "Sea_Giraffe_AMB", CecNetwork.NatoEuroNaval },
-            { "SMART-S-MK2", CecNetwork.NatoEuroNaval },
-            { "eu_SMART-S_Mk2", CecNetwork.NatoEuroNaval },
-            { "eu_sm400", CecNetwork.NatoEuroNaval },
-            { "eu_ns100", CecNetwork.NatoEuroNaval },
-            { "eu_stir120", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_stir180", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_stir240", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "Stir", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_CEROS-200_CWI", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "dk_iver_CEROS-200_CWI", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_tacticalpcgen1", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_tacticalpcgen2", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_tacticalpcgen3", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_2T_Datalink", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_JUWL", CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval },
-            { "eu_aster_datalink", CecNetwork.NatoEuroNaval },
-
-            // --- Soviet / Russian Naval & Air Defense ---
-            { "Top_Dome", CecNetwork.RuNaval },
-            { "Top Dome", CecNetwork.RuNaval },
-            { "30N6E1_FCR", CecNetwork.RuNaval | CecNetwork.PlanNaval },
-            { "30N6E2", CecNetwork.RuNaval },
-            { "rfn_30n6e2", CecNetwork.RuNaval },
-            { "rfn_92n6e", CecNetwork.RuNaval },
-            { "rfn_5p20k", CecNetwork.RuNaval | CecNetwork.RuAirZaslon },
-            { "rfn_5p20k_FCR", CecNetwork.RuNaval | CecNetwork.RuAirZaslon },
-            { "rfn_5p20k-a", CecNetwork.RuNaval | CecNetwork.RuAirZaslon },
-            { "rfn_5p20k-a_FCR", CecNetwork.RuNaval | CecNetwork.RuAirZaslon },
-            { "rfn_mf_rlk", CecNetwork.RuNaval | CecNetwork.RuAirZaslon },
-            { "rfn_mf_rlk_FCR", CecNetwork.RuNaval | CecNetwork.RuAirZaslon },
-            { "rfn_5p27", CecNetwork.RuNaval },
-            { "rfn_5p27-0", CecNetwork.RuNaval },
-            { "rfn_5p27m", CecNetwork.RuNaval },
-            { "5P-27 Furke", CecNetwork.RuNaval },
-            { "rfn_mr750", CecNetwork.RuNaval },
-            { "rfn_mr760", CecNetwork.RuNaval },
-            { "MR-760 Fregat", CecNetwork.RuNaval },
-            { "Podberezovik", CecNetwork.RuNaval },
-            { "Top_Pair", CecNetwork.RuNaval },
-            { "Top_Steer", CecNetwork.RuNaval },
-            { "Top_Plate", CecNetwork.RuNaval | CecNetwork.PlanNaval },
-            { "Sky_Watch", CecNetwork.RuNaval },
-            { "Fregat_MAM", CecNetwork.RuNaval },
-            { "Front_Dome", CecNetwork.RuNaval | CecNetwork.PlanNaval },
-            { "rfn_mr90", CecNetwork.RuNaval },
-            { "rfn_3r90m", CecNetwork.RuNaval },
-            { "Big_Bird", CecNetwork.RuNaval },
-            { "91N6E", CecNetwork.RuNaval },
-            { "36H6", CecNetwork.RuNaval },
-            { "96L6", CecNetwork.RuNaval },
-
-            // --- Chinese PLA / PLAN "A-Shoot-B-Guide" ---
-            { "LJG-346", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJG-346A", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJG-346B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-346B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "Type_346", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "Type_346A", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "Type_346B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "Type 346", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "Type 346A", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "Type 346B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-382", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "Type_382", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "Type 382", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-384", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-368", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-368 054B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJG-XX-054B-S", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-36X", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-364", CecNetwork.PlanNaval },
-            { "Type_364", CecNetwork.PlanNaval },
-            { "LJQ-517A", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-517B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-518", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJQ-520", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "LJG-316", CecNetwork.PlanNaval },
-            { "LJG-318", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "HT-233", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "HT-233_AESA", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "H-200A", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "SLC-14", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-            { "SLC-14 search", CecNetwork.PlanNaval | CecNetwork.PlaAir },
-
-            // --- US / NATO Fighter Radars (Link 16 / MADL / IFDL) ---
-            { "AN/APG-81", CecNetwork.WesternJoint },
-            { "AN/APG-77", CecNetwork.WesternJoint },
-            { "AN/APG-77(V)1", CecNetwork.WesternJoint },
-            { "AN/APG-77v4", CecNetwork.WesternJoint },
-            { "AN/APG-79", CecNetwork.WesternJoint },
-            { "AN/APG-79(V)", CecNetwork.WesternJoint },
-            { "AN/APG-82(V)1", CecNetwork.WesternJoint },
-            { "AN/APG-83", CecNetwork.WesternJoint },
-            { "AN/APG-85", CecNetwork.WesternJoint },
-            { "KF-21 AESA", CecNetwork.WesternJoint },
-            { "B-21 AESA", CecNetwork.WesternJoint },
-            { "J/APG-2", CecNetwork.WesternJoint },
-            { "J/APG-2 (AAM-4 guidance)", CecNetwork.WesternJoint },
-            { "AN/APG-68(V)7", CecNetwork.UsNatoAir },
-            { "AN/APG-68(V)9", CecNetwork.UsNatoAir },
-            { "AN/APG-63(V)1", CecNetwork.UsNatoAir },
-            { "EL/M-2032", CecNetwork.UsNatoAir },
-            { "HAF_APG68_V9", CecNetwork.UsNatoAir },
-            { "HAF_APG68_V9_ADV", CecNetwork.UsNatoAir },
-            { "Captor-E", CecNetwork.WesternJoint },
-            { "Captor-M", CecNetwork.UsNatoAir },
-            { "RBE2_AA", CecNetwork.WesternJoint },
-            { "PS-05/A Mk4 AESA", CecNetwork.WesternJoint },
-            { "burger_aesa_radar", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "weeb_aesa_radar", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
-            { "Link-16_Receiver", CecNetwork.WesternJoint },
-
-            // --- Soviet / Russian Fighter Radars (Zaslon APD-518 / Irbis-E / Byelka) ---
-            { "Zaslon", CecNetwork.RuJoint },
-            { "Zaslon-M", CecNetwork.RuJoint },
-            { "Zaslon_Targeting", CecNetwork.RuJoint },
-            { "Zaslon-M_Targeting", CecNetwork.RuJoint },
-            { "Irbis-E", CecNetwork.RuJoint | CecNetwork.PlaAir },
-            { "N036-1-01", CecNetwork.RuJoint },
-            { "N011M", CecNetwork.RuJoint },
-            { "N001VE", CecNetwork.RuJoint | CecNetwork.PlaAir },
-
-            // --- PLA Fighter Radars (J-20, J-16, J-15T/D, J-10C, J-35, J-36) ---
-            { "KLJ-5", CecNetwork.PlaJoint },
-            { "KLJ-5 (Type 1475)", CecNetwork.PlaJoint },
-            { "KLJ-10A", CecNetwork.PlaJoint },
-            { "KLJ-11A", CecNetwork.PlaJoint },
-            { "KLJ-15", CecNetwork.PlaJoint },
-            { "KLJ-16", CecNetwork.PlaJoint },
-            { "KLJ-35", CecNetwork.PlaJoint },
-            { "J-36 AESA", CecNetwork.PlaJoint },
-            { "1893", CecNetwork.PlaJoint },
-            { "1893-A", CecNetwork.PlaJoint },
-            { "J-11BG_AESA", CecNetwork.PlaJoint },
-            { "1493", CecNetwork.PlaAir }
-        };
-
-        static CecCapability()
-        {
-            foreach (var kv in AwacsRadars)
-            {
-                if (!RadarNetworks.ContainsKey(kv.Key))
-                    RadarNetworks[kv.Key] = kv.Value;
-            }
-        }
-
-        // =========================================================================================
-        // 5. CORE HELPERS: Sensor Classification & Compatibility
+        // 1. PROFILE RESOLVERS & LOOKUPS ($O(1)$ from CecDataTables)
         // =========================================================================================
 
-        private const string P2027Suffix = " (P2027)";
-
-        /// <summary>
-        /// Strips trailing mod-fork balance suffixes such as <c>" (P2027)"</c> from
-        /// <c>Pacific 2027 - Dynamic Campaign</c> (<c>fork_radars.ini</c>) so sensor classification
-        /// resolves against canonical radar keys while preserving raw <c>_systemName</c> for engine bindings.
-        /// </summary>
         public static string NormalizeRadarKey(string systemName)
         {
             if (string.IsNullOrEmpty(systemName))
@@ -505,203 +65,87 @@ namespace CecMod
             return systemName;
         }
 
-        /// <summary>True if the sensor is a pure CW dish illuminator reserved strictly for terminal SARH illumination.</summary>
+        public static PlatformProfile GetPlatformProfile(ObjectBase platform)
+        {
+            if (platform?._obp == null || string.IsNullOrEmpty(platform._obp._objectIniName))
+                return PlatformProfile.DefaultTier3;
+
+            string key = NormalizeRadarKey(platform._obp._objectIniName);
+            if (CecDataTables.Platforms.TryGetValue(key, out var p))
+                return p;
+
+            return PlatformProfile.DefaultTier3;
+        }
+
+        public static RadarProfile GetRadarProfile(SensorSystemRadar radar)
+        {
+            if (radar == null || string.IsNullOrEmpty(radar._systemName))
+                return RadarProfile.DefaultTier3;
+
+            string key = NormalizeRadarKey(radar._systemName);
+            if (CecDataTables.Radars.TryGetValue(key, out var r))
+                return r;
+
+            return RadarProfile.DefaultTier3;
+        }
+
+        public static MissileProfile GetMissileProfile(AmmunitionParameters ap)
+        {
+            if (ap == null || string.IsNullOrEmpty(ap._ammunitionFileName))
+                return MissileProfile.DefaultTier3;
+
+            string key = NormalizeRadarKey(ap._ammunitionFileName);
+            if (CecDataTables.Missiles.TryGetValue(key, out var m))
+                return m;
+
+            return MissileProfile.DefaultTier3;
+        }
+
         public static bool IsPureCwDishIlluminator(string systemName)
         {
             if (string.IsNullOrEmpty(systemName)) return false;
-            if (PureCwDishIlluminators.Contains(systemName)) return true;
             string key = NormalizeRadarKey(systemName);
-            return !ReferenceEquals(key, systemName) && PureCwDishIlluminators.Contains(key);
-        }
-
-        /// <summary>True if the sensor is a synthetic mid-course datalink proxy that cannot provide CW SARH illumination.</summary>
-        public static bool IsSyntheticDatalinkSensor(SensorSystem s)
-        {
-            if (s == null || string.IsNullOrEmpty(s._systemName)) return false;
-            if (SyntheticDatalinkSensors.Contains(s._systemName)) return true;
-            string key = NormalizeRadarKey(s._systemName);
-            return !ReferenceEquals(key, s._systemName) && SyntheticDatalinkSensors.Contains(key);
-        }
-
-        /// <summary>True if the sensor is an airborne AWACS / AEW&amp;C surveillance/datalink radar.</summary>
-        public static bool IsAwacsRadar(SensorSystem s)
-        {
-            if (s == null || string.IsNullOrEmpty(s._systemName)) return false;
-            if (AwacsRadars.ContainsKey(s._systemName)) return true;
-            string key = NormalizeRadarKey(s._systemName);
-            return !ReferenceEquals(key, s._systemName) && AwacsRadars.ContainsKey(key);
-        }
-
-        /// <summary>
-        /// Evaluates whether <paramref name="sensor"/> can guide <paramref name="ap"/> on its own platform.
-        /// When <c>ExtendedGuidance.dll</c> is disabled, blocks synthetic datalinks (<c>eu_AEGIS_BL9</c>)
-        /// from guiding SARH missiles so ships cannot bypass physical CW illuminator channel limits.
-        /// When <c>ExtendedGuidance.dll</c> is active, allows synthetic/native <c>DatalinkCarrier</c> sensors
-        /// in the same CEC network to carry mid-course datalink updates for SARH+Datalink missiles while
-        /// <c>ExtendedGuidance.Runtime.Illuminator</c> enforces real CW/IWI terminal illumination.
-        /// </summary>
-        public static bool CanSensorGuideAmmo(SensorSystem sensor, AmmunitionParameters ap)
-        {
-            if (sensor == null || ap == null) return true;
-
-            // Rule 1: An airborne AWACS radar can NEVER guide or terminally illuminate a SARH missile.
-            // A synthetic datalink transceiver (eu_AEGIS_BL9, SYR-1, spa_SCOMBA_v1, etc.) can only be
-            // bound to a SARH+Datalink missile when ExtendedGuidance.dll is active to enforce terminal CW illumination.
-            if (ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
-            {
-                if (IsAwacsRadar(sensor))
-                    return false;
-
-                if (IsSyntheticDatalinkSensor(sensor))
-                {
-                    if (!EgBridge.IsActive || ap._midCourseCorrection == null || !ap._midCourseCorrection.IsDatalink)
-                        return false;
-
-                    CecNetwork sensorNet = GetSensorNetwork(sensor);
-                    if (sensorNet == CecNetwork.None && sensor._baseObject != null)
-                        sensorNet = GetPlatformNetwork(sensor._baseObject);
-
-                    CecNetwork ownerNet = GetAmmoOwnerNetwork(ap);
-                    if (ownerNet != CecNetwork.None && sensorNet != CecNetwork.None && (ownerNet & sensorNet) == 0)
-                        return false;
-
-                    return true;
-                }
-            }
-
-            // Rule 2: When firing an Active Radar Homing (ARH) or IIR missile with mid-course datalink
-            // (SM-6, SM-2 Blk IIIC, ESSM Blk 2, Aster 15/30), do NOT waste a pure X-band CW dish illuminator
-            // (SPG-62, STIR, CEROS-200) if the launcher's associated sensors already include an operational
-            // synthetic datalink or multifunction radar on the same ship.
-            if ((ap._guidanceType == AmmunitionParameters.GuidanceType.ActiveRadarHoming ||
-                 ap._guidanceType == AmmunitionParameters.GuidanceType.IRHoming) &&
-                ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance &&
-                IsPureCwDishIlluminator(sensor._systemName))
-            {
-                if (PlatformHasDedicatedMidCourseSensor(sensor._baseObject, ap._associatedSensors))
-                    return false;
-            }
-
-            return true;
-        }
-
-        private static CecNetwork GetAmmoOwnerNetwork(AmmunitionParameters ap)
-        {
-            if (ap == null) return CecNetwork.None;
-            if (ap._associatedWeaponSystems != null)
-            {
-                for (int i = 0; i < ap._associatedWeaponSystems.Count; i++)
-                {
-                    var ws = ap._associatedWeaponSystems[i];
-                    if (ws?._baseObject != null)
-                    {
-                        CecNetwork net = GetPlatformNetwork(ws._baseObject);
-                        if (net != CecNetwork.None)
-                            return net;
-                    }
-                }
-            }
-            return InferNetworkFromAmmoName(ap._ammunitionFileName);
-        }
-
-        private static bool PlatformHasDedicatedMidCourseSensor(ObjectBase platform, List<SensorSystem> associated)
-        {
-            if (platform == null || associated == null) return false;
-            for (int i = 0; i < associated.Count; i++)
-            {
-                var s = associated[i];
-                if (s != null && s._baseObject == platform && !s.Inoperable.Value &&
-                    !string.IsNullOrEmpty(s._systemName) && !IsPureCwDishIlluminator(s._systemName) &&
-                    (IsSyntheticDatalinkSensor(s) || s is SensorSystemRadar))
-                {
-                    return true;
-                }
-            }
+            if (CecDataTables.Radars.TryGetValue(key, out var r))
+                return r.IsPureCwIlluminator;
             return false;
         }
 
-        /// <summary>Returns the CEC network mask supported by a sensor system.</summary>
-        public static CecNetwork GetSensorNetwork(SensorSystem s)
+        public static bool IsSyntheticDatalinkSensor(SensorSystem s)
         {
-            if (s == null || string.IsNullOrEmpty(s._systemName)) return CecNetwork.None;
-            if (RadarNetworks.TryGetValue(s._systemName, out var net))
-                return net;
-
-            string name = NormalizeRadarKey(s._systemName);
-            if (!ReferenceEquals(name, s._systemName) && RadarNetworks.TryGetValue(name, out net))
-                return net;
-
-            // Prefix fallback for modded variants
-            if (name.StartsWith("eu_SPY-", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("SPY-", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("SPG-", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("eu_AEGIS_", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("CEAFAR", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir;
-
-            if (name.StartsWith("AN/APG-7", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("AN/APG-8", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("AN/MPQ-53", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("AN/MPQ-65", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.WesternJoint;
-
-            if (name.StartsWith("eu_apar", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("eu_stir", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("eu_SAMPSON", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("eu_EMPAR", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("eu_KRONOS", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("eu_Herakles", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.NatoEuroNaval | CecNetwork.UsAlliedNaval;
-
-            if (name.StartsWith("rfn_5p20", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("rfn_30n6", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("rfn_mf_rlk", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.RuNaval | CecNetwork.RuAirZaslon;
-
-            if (name.StartsWith("LJG-346", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("LJQ-346", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("Type346", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("Type_346", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("Type 346", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("LJQ-368", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("LJG-XX-054B", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("KLJ-", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("KLC-", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.PlaJoint;
-
-            return CecNetwork.None;
+            if (s == null || string.IsNullOrEmpty(s._systemName)) return false;
+            string key = NormalizeRadarKey(s._systemName);
+            if (CecDataTables.Radars.TryGetValue(key, out var r))
+                return r.IsSyntheticDatalink;
+            return false;
         }
 
-        /// <summary>Returns the aggregate CEC network mask of an entire unit (ship, submarine, aircraft, land SAM).</summary>
-        public static CecNetwork GetPlatformNetwork(ObjectBase platform)
+        public static bool IsAwacsRadar(SensorSystem s)
         {
-            var systems = platform?._obp?._sensorSystems;
-            if (systems == null) return CecNetwork.None;
-            CecNetwork mask = CecNetwork.None;
-            for (int i = 0; i < systems.Count; i++)
-            {
-                var s = systems[i];
-                if (s == null || s.Inoperable.Value) continue;
-                mask |= GetSensorNetwork(s);
-            }
-            return mask;
+            if (s == null || string.IsNullOrEmpty(s._systemName)) return false;
+            string key = NormalizeRadarKey(s._systemName);
+            if (CecDataTables.Radars.TryGetValue(key, out var r))
+                return r.IsAwacs;
+            return false;
         }
 
-        /// <summary>Returns the SARH terminal illuminator family for a radar, or None if not a known CEC SARH illuminator.</summary>
         public static SarhIllumFamily GetSarhFamily(SensorSystemRadar r)
         {
             if (r == null || string.IsNullOrEmpty(r._systemName)) return SarhIllumFamily.None;
-            if (RadarSarhFamilies.TryGetValue(r._systemName, out var fam))
-                return fam;
             string key = NormalizeRadarKey(r._systemName);
-            if (!ReferenceEquals(key, r._systemName) && RadarSarhFamilies.TryGetValue(key, out fam))
-                return fam;
+            if (CecDataTables.Radars.TryGetValue(key, out var prof))
+                return prof.SarhIllumFamily;
             return SarhIllumFamily.None;
         }
 
-        /// <summary>Infers the SARH terminal illuminator family required by a launcher or missile.</summary>
         public static SarhIllumFamily GetRequiredSarhFamily(ObjectBase launcher, WeaponSystem ws = null)
         {
+            if (ws?._ammoForEngage?._ap != null)
+            {
+                var mp = GetMissileProfile(ws._ammoForEngage._ap);
+                if (mp.RequiredSarhFamily != SarhIllumFamily.None)
+                    return mp.RequiredSarhFamily;
+            }
+
             if (ws?._vwp?._associatedSensors != null)
             {
                 foreach (var s in ws._vwp._associatedSensors)
@@ -727,952 +171,204 @@ namespace CecMod
             return SarhIllumFamily.None;
         }
 
-        // =========================================================================================
-        // 6. LAUNCH-TIME CEC: Consort & AWACS Sensor Pool Injection
-        // =========================================================================================
-
-        /// <summary>
-        /// Refreshes the set of qualifying CEC consort radars (and AWACS radars for ARH/mid-course missiles)
-        /// appended to <paramref name="ws"/>'s <c>_vwp._associatedSensors</c> and <c>_vwp._externalGuidingSystems</c>.
-        /// Native local sensors remain first in <c>_associatedSensors</c> so normal local shots use local sensors first.
-        /// </summary>
-        public static void RefreshConsortRadars(WeaponSystem ws)
+        public static CecNetwork GetSensorNetwork(SensorSystem s)
         {
-            var platform = ws?._baseObject;
-            if (platform == null || platform.IsDestroyed) return;
-            var tf = platform._taskforce;
-            var vwp = ws._vwp;
-            var associated = vwp?._associatedSensors;
-            if (tf == null || associated == null) return;
+            if (s == null || string.IsNullOrEmpty(s._systemName)) return CecNetwork.None;
+            var prof = s is SensorSystemRadar r ? GetRadarProfile(r) : null;
+            if (prof == null || prof.CecTier == CecTier.Tier0) return CecNetwork.None;
 
-            // Remove previously injected sensors so we never accumulate stale references.
-            var injected = _injectedSensors.GetOrCreateValue(ws);
-            foreach (var prev in injected)
-                associated.Remove(prev);
-            injected.Clear();
+            if ((prof.Datalinks & (DatalinkStandard.Usg2Cec | DatalinkStandard.Ttnt | DatalinkStandard.Link16 | DatalinkStandard.Link11 | DatalinkStandard.Ifdl | DatalinkStandard.Madl)) != 0)
+                return CecNetwork.WesternJoint;
+            if ((prof.Datalinks & (DatalinkStandard.Jsidls | DatalinkStandard.Hn900)) != 0)
+                return CecNetwork.PlaJoint;
+            if ((prof.Datalinks & (DatalinkStandard.RuFortTvm | DatalinkStandard.Tks2Apd518 | DatalinkStandard.RuNavalTactical)) != 0)
+                return CecNetwork.RuJoint;
 
-            var injectedExt = _injectedExternalNames.GetOrCreateValue(ws);
-            if (vwp._externalGuidingSystems != null)
-            {
-                foreach (var extName in injectedExt)
-                    vwp._externalGuidingSystems.Remove(extName);
-            }
-            injectedExt.Clear();
-
-            // Determine launcher's CEC network, native FCR names, and SARH illuminator family.
-            CecNetwork launcherNet = GetPlatformNetwork(platform);
-            if (launcherNet == CecNetwork.None) return;
-
-            var nativeRadarNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            SarhIllumFamily launcherSarhFamily = SarhIllumFamily.None;
-            foreach (var s in associated)
-            {
-                if (s is SensorSystemRadar r0 && s._baseObject == platform && !string.IsNullOrEmpty(r0._systemName))
-                {
-                    nativeRadarNames.Add(r0._systemName);
-                    nativeRadarNames.Add(NormalizeRadarKey(r0._systemName));
-                    if (launcherSarhFamily == SarhIllumFamily.None)
-                        launcherSarhFamily = GetSarhFamily(r0);
-                }
-            }
-            if (nativeRadarNames.Count == 0) return;
-
-            // Launcher needs an intact datalink mast (even if radar transmitter is off for EMCON).
-            float launcherAntennaY = DatalinkMastHeight(platform, requireRadarOn: false);
-            if (launcherAntennaY < 0f) return;
-
-            GetLauncherGuidanceNeeds(ws, out bool needsSarh, out bool needsMidCourse);
-            var deferredIdleIlluminators = needsSarh ? new List<SensorSystemRadar>() : null;
-
-            // Scan taskforce vessels for consort illuminators / multifunction radars
-            if (tf._taskforceVessels != null)
-            {
-                for (int i = 0; i < tf._taskforceVessels.Count; i++)
-                {
-                    TryInjectFromCooperator(
-                        platform, launcherAntennaY, launcherNet, launcherSarhFamily,
-                        nativeRadarNames, needsSarh, needsMidCourse, tf._taskforceVessels[i],
-                        associated, vwp._externalGuidingSystems, injected, injectedExt, deferredIdleIlluminators);
-                }
-            }
-
-            // Scan taskforce aircraft (AWACS / fighters) for ARH mid-course or fighter-to-fighter CEC
-            if ((needsMidCourse || platform is Aircraft) && tf._taskforceAircraft != null)
-            {
-                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
-                {
-                    TryInjectFromCooperator(
-                        platform, launcherAntennaY, launcherNet, launcherSarhFamily,
-                        nativeRadarNames, needsSarh: false, needsMidCourse: true, tf._taskforceAircraft[i],
-                        associated, vwp._externalGuidingSystems, injected, injectedExt, deferredIdleIlluminators: null);
-                }
-            }
-
-            // Scan taskforce helicopters (e.g. Ka-31, Z-18J AEW helicopters) for ARH mid-course
-            if (needsMidCourse && tf._taskforceHelicopters != null)
-            {
-                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
-                {
-                    TryInjectFromCooperator(
-                        platform, launcherAntennaY, launcherNet, launcherSarhFamily,
-                        nativeRadarNames, needsSarh: false, needsMidCourse: true, tf._taskforceHelicopters[i],
-                        associated, vwp._externalGuidingSystems, injected, injectedExt, deferredIdleIlluminators: null);
-                }
-            }
-
-            // Append idle Targeting SARH illuminators AFTER active radars so vanilla activatePreLaunchGuidance
-            // prefers active mid-course/AWACS radars first while ExtendedGuidance.Runtime.Illuminator can still
-            // reserve and auto-enable consort illuminators during terminal SARH approach.
-            if (deferredIdleIlluminators != null)
-            {
-                for (int i = 0; i < deferredIdleIlluminators.Count; i++)
-                {
-                    var r = deferredIdleIlluminators[i];
-                    if (!associated.Contains(r))
-                    {
-                        associated.Add(r);
-                        injected.Add(r);
-                    }
-                    if (vwp._externalGuidingSystems != null && !string.IsNullOrEmpty(r._systemName) &&
-                        !vwp._externalGuidingSystems.Contains(r._systemName))
-                    {
-                        vwp._externalGuidingSystems.Add(r._systemName);
-                        injectedExt.Add(r._systemName);
-                    }
-                }
-            }
+            return CecNetwork.WesternJoint;
         }
 
-        /// <summary>
-        /// Ensures a per-vessel <see cref="AmmunitionParameters"/> instance (<c>!ap.IsSharedMaster</c>)
-        /// exposes <paramref name="ws"/>'s consort-enriched <c>_associatedSensors</c> list so
-        /// <c>ExtendedGuidance.Runtime.Illuminator</c> can automatically reserve forward consort illuminators.
-        /// </summary>
-        public static void SyncConsortIlluminatorsToAmmo(WeaponSystem ws, AmmunitionParameters ap)
+        public static CecNetwork GetPlatformNetwork(ObjectBase platform)
         {
-            if (ws?._vwp?._associatedSensors == null || ap == null || ap.IsSharedMaster)
-                return;
+            if (platform == null) return CecNetwork.None;
+            var p = GetPlatformProfile(platform);
+            if (p.CecTier == CecTier.Tier0) return CecNetwork.None;
 
-            var wsSensors = ws._vwp._associatedSensors;
-            if (ap._associatedSensors == null)
-            {
-                ap._associatedSensors = wsSensors;
-                return;
-            }
+            if ((p.Datalinks & (DatalinkStandard.Usg2Cec | DatalinkStandard.Ttnt | DatalinkStandard.Link16 | DatalinkStandard.Link11 | DatalinkStandard.Ifdl | DatalinkStandard.Madl)) != 0)
+                return CecNetwork.WesternJoint;
+            if ((p.Datalinks & (DatalinkStandard.Jsidls | DatalinkStandard.Hn900)) != 0)
+                return CecNetwork.PlaJoint;
+            if ((p.Datalinks & (DatalinkStandard.RuFortTvm | DatalinkStandard.Tks2Apd518 | DatalinkStandard.RuNavalTactical)) != 0)
+                return CecNetwork.RuJoint;
 
-            if (ReferenceEquals(ap._associatedSensors, wsSensors))
-                return;
-
-            // Multi-launcher ship where ap._associatedSensors points to sibling launcher's sensor list:
-            // ensure any consort sensors injected into ws are present there too (same taskforce only).
-            var tf = ws._baseObject?._taskforce;
-            if (tf == null)
-                return;
-
-            for (int i = 0; i < wsSensors.Count; i++)
-            {
-                var s = wsSensors[i];
-                if (s?._baseObject != null && s._baseObject._taskforce == tf && !ap._associatedSensors.Contains(s))
-                {
-                    ap._associatedSensors.Add(s);
-                }
-            }
-        }
-
-        private static void GetLauncherGuidanceNeeds(WeaponSystem ws, out bool needsSarh, out bool needsMidCourse)
-        {
-            needsSarh = false;
-            needsMidCourse = false;
-
-            InspectAmmoGuidanceNeeds(ws?._ammoForEngage?._ap, ref needsSarh, ref needsMidCourse);
-            InspectAmmoGuidanceNeeds(ws?._ammunitionOnWeapon?._ap, ref needsSarh, ref needsMidCourse);
-
-            var magList = ws?._vwp?._associatedMagazine?._ammunitionList;
-            if (magList != null)
-            {
-                for (int i = 0; i < magList.Count; i++)
-                {
-                    InspectAmmoGuidanceNeeds(magList[i]?._ap, ref needsSarh, ref needsMidCourse);
-                }
-            }
-
-            // Fallback when magazine inspection yields nothing (e.g. direct container launcher while idle)
-            if (!needsSarh && !needsMidCourse)
-            {
-                needsSarh = true;
-                needsMidCourse = true;
-            }
-        }
-
-        private static void InspectAmmoGuidanceNeeds(AmmunitionParameters ap, ref bool needsSarh, ref bool needsMidCourse)
-        {
-            if (ap == null) return;
-            if (ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
-                needsSarh = true;
-            if (ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance &&
-                ap._guidanceType != AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
-            {
-                needsMidCourse = true;
-            }
-        }
-
-        private static void TryInjectFromCooperator(
-            ObjectBase launcher,
-            float launcherAntennaY,
-            CecNetwork launcherNet,
-            SarhIllumFamily launcherSarhFamily,
-            HashSet<string> nativeRadarNames,
-            bool needsSarh,
-            bool needsMidCourse,
-            ObjectBase cooperator,
-            List<SensorSystem> associated,
-            List<string> externalGuidingSystems,
-            HashSet<SensorSystem> injected,
-            HashSet<string> injectedExt,
-            List<SensorSystemRadar> deferredIdleIlluminators)
-        {
-            if (cooperator == null || cooperator == launcher || cooperator.IsDestroyed) return;
-            var systems = cooperator._obp?._sensorSystems;
-            if (systems == null) return;
-
-            CecNetwork coopNet = GetPlatformNetwork(cooperator);
-            if ((launcherNet & coopNet) == 0) return;
-
-            bool airborneLink = (launcher is Aircraft || launcher is Helicopter ||
-                                 cooperator is Aircraft || cooperator is Helicopter);
-            float maxCap = airborneLink ? AirborneNetRangeCapUnits : SurfaceNetRangeCapUnits;
-            float linkDist = HorizontalDistance(launcher.transform.position, cooperator.transform.position);
-            if (linkDist > maxCap) return;
-
-            // Cooperator must have an ACTIVE datalink radar on the net (i.e. not in EMCON).
-            float coopAntennaY = DatalinkMastHeight(cooperator, requireRadarOn: true);
-            if (coopAntennaY < 0f) return;
-            if (!InLinkHorizon(launcherAntennaY, coopAntennaY, linkDist)) return;
-
-            for (int i = 0; i < systems.Count; i++)
-            {
-                if (!(systems[i] is SensorSystemRadar r)) continue;
-                if (!QualifiesForLaunchInjection(
-                        r, launcherNet, launcherSarhFamily, nativeRadarNames,
-                        needsSarh, needsMidCourse, out bool isDeferredIdleIlluminator))
-                {
-                    continue;
-                }
-
-                if (isDeferredIdleIlluminator)
-                {
-                    deferredIdleIlluminators?.Add(r);
-                    continue;
-                }
-
-                if (!associated.Contains(r))
-                {
-                    associated.Add(r);
-                    injected.Add(r);
-                }
-                if (externalGuidingSystems != null && !string.IsNullOrEmpty(r._systemName) &&
-                    !externalGuidingSystems.Contains(r._systemName))
-                {
-                    externalGuidingSystems.Add(r._systemName);
-                    injectedExt.Add(r._systemName);
-                }
-            }
-        }
-
-        private static bool QualifiesForLaunchInjection(
-            SensorSystemRadar r,
-            CecNetwork launcherNet,
-            SarhIllumFamily launcherSarhFamily,
-            HashSet<string> nativeRadarNames,
-            bool needsSarh,
-            bool needsMidCourse,
-            out bool isDeferredIdleIlluminator)
-        {
-            isDeferredIdleIlluminator = false;
-            if (r == null || r._baseObject == null || r._baseObject.IsDestroyed) return false;
-            if (r.Inoperable.Value || r._radar?._rp == null) return false;
-
-            string rKey = NormalizeRadarKey(r._systemName);
-
-            if (!r.IsOn.Value)
-            {
-                // Dedicated Targeting SARH illuminators (SPG-62, STIR, Top Dome, etc.) sit idle (IsOn == false)
-                // until an engagement reserves them. Because the cooperator ship already passed DatalinkMastHeight
-                // with requireRadarOn: true (not in EMCON), allow deferring idle SARH illuminators to the tail of _associatedSensors.
-                if (!needsSarh || r._type != SensorSystemRadar.RadarType.Targeting)
-                    return false;
-                if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r))
-                    return false;
-
-                SarhIllumFamily idleFam = GetSarhFamily(r);
-                bool idleMatch = (launcherSarhFamily != SarhIllumFamily.None && idleFam == launcherSarhFamily) ||
-                                 nativeRadarNames.Contains(r._systemName) ||
-                                 nativeRadarNames.Contains(rKey);
-                if (!idleMatch || !r.HasFreeChannels())
-                    return false;
-
-                isDeferredIdleIlluminator = true;
-                return true;
-            }
-
-            if (needsSarh && !IsSyntheticDatalinkSensor(r) && !IsAwacsRadar(r))
-            {
-                SarhIllumFamily rFam = GetSarhFamily(r);
-                bool familyMatch = (launcherSarhFamily != SarhIllumFamily.None && rFam == launcherSarhFamily) ||
-                                   nativeRadarNames.Contains(r._systemName) ||
-                                   nativeRadarNames.Contains(rKey);
-                if (familyMatch && r.HasFreeChannels())
-                    return true;
-            }
-
-            if (needsMidCourse && !IsPureCwDishIlluminator(r._systemName))
-            {
-                CecNetwork rNet = GetSensorNetwork(r);
-                if ((rNet & launcherNet) != 0 || nativeRadarNames.Contains(r._systemName) || nativeRadarNames.Contains(rKey))
-                {
-                    if (IsAwacsRadar(r) || IsCecMultifunctionRadar(r))
-                        EnsureMidCourseChannels(r);
-                    if (r.HasFreeChannels())
-                        return true;
-                }
-            }
-
-            return false;
+            return CecNetwork.WesternJoint;
         }
 
         // =========================================================================================
-        // 7. MID-FLIGHT HANDOFF: Find Best Consort or AWACS Radar for an In-Flight Missile
+        // 2. PAIRWISE INTERACTION & FLIGHT ISOLATION
         // =========================================================================================
 
-        /// <summary>
-        /// Finds the best qualifying CEC consort or AWACS radar to take over guidance of <paramref name="missile"/>.
-        /// Handles both SARH terminal illuminator handoffs and ARH/command mid-course datalink handoffs.
-        /// </summary>
-        public static SensorSystemRadar FindHandoffRadar(Missile missile, bool requireTerminalIlluminator = false)
+        public static InteractionTier EvaluateInteraction(ObjectBase shooter, ObjectBase consort)
         {
-            var ap = missile?._ap;
-            var launcher = missile?._launchPlatform;
-            var target = missile?.CurrentIntendedTargetObject;
-            var tf = launcher?._taskforce ?? missile?._taskforce;
-            if (ap == null || tf == null || target == null || target.IsDestroyed) return null;
+            if (shooter == null || consort == null || shooter == consort)
+                return InteractionTier.Incompatible;
 
-            bool isSarh = missile._seeker != null &&
-                          missile._seeker._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
-            bool isMidCourse = ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance;
-            if (!isSarh && !isMidCourse) return null;
+            var p1 = GetPlatformProfile(shooter);
+            var p2 = GetPlatformProfile(consort);
 
-            // If an ARH missile has already gone pitbull (locked onto target with its own active seeker),
-            // it no longer needs a consort radar channel.
-            if (!isSarh && missile._seeker != null &&
-                missile._seeker._guidanceType == AmmunitionParameters.GuidanceType.ActiveRadarHoming &&
-                missile.CurrentStrongestTargetEcho != null)
+            // SATCOM weapons/platforms bypass terrestrial links
+            if ((p1.Datalinks & DatalinkStandard.SatcomUplink) != 0 || (p2.Datalinks & DatalinkStandard.SatcomUplink) != 0)
+                return InteractionTier.SatcomGlobal;
+
+            InteractionTier best = InteractionTier.Incompatible;
+            foreach (DatalinkStandard s1 in CecDataTables.GetIndividualStandards(p1.Datalinks))
             {
-                return null;
-            }
-
-            CecNetwork reqNet = launcher != null ? GetPlatformNetwork(launcher) : CecNetwork.None;
-            if (reqNet == CecNetwork.None && missile._guidingRadarSystem != null)
-                reqNet = GetSensorNetwork(missile._guidingRadarSystem);
-            if (reqNet == CecNetwork.None)
-                reqNet = InferNetworkFromAmmoName(ap._ammunitionFileName);
-            if (reqNet == CecNetwork.None) return null;
-
-            SarhIllumFamily reqSarhFam = isSarh ? GetRequiredSarhFamily(launcher) : SarhIllumFamily.None;
-            if (isSarh && reqSarhFam == SarhIllumFamily.None && missile._guidingRadarSystem != null)
-                reqSarhFam = GetSarhFamily(missile._guidingRadarSystem);
-
-            bool allowSarhCarrierMidCourse = isSarh
-                                             && !requireTerminalIlluminator
-                                             && EgBridge.IsActive
-                                             && ap._midCourseCorrection != null
-                                             && ap._midCourseCorrection.IsDatalink
-                                             && !EgBridge.IsTerminalIlluminationDue(missile);
-
-            var current = missile._guidingRadarSystem;
-            var targetPos = target.transform.position;
-
-            bool launcherAlive = launcher != null && !launcher.IsDestroyed;
-            float launcherAntennaY = launcherAlive ? DatalinkMastHeight(launcher, requireRadarOn: false) : -1f;
-            var launcherPos = launcherAlive ? launcher.transform.position : Vector3.zero;
-            bool launcherAirborne = launcher is Aircraft || launcher is Helicopter;
-
-            SensorSystemRadar best = null;
-            float bestScore = float.MaxValue;
-
-            // 1. Search taskforce vessels
-            if (tf._taskforceVessels != null)
-            {
-                for (int i = 0; i < tf._taskforceVessels.Count; i++)
+                foreach (DatalinkStandard s2 in CecDataTables.GetIndividualStandards(p2.Datalinks))
                 {
-                    EvaluateHandoffCooperator(
-                        missile, ap, target, targetPos, isSarh, allowSarhCarrierMidCourse, reqNet, reqSarhFam, current,
-                        launcherAlive, launcherAirborne, launcherAntennaY, launcherPos,
-                        tf._taskforceVessels[i], ref best, ref bestScore);
+                    InteractionTier tier = CecDataTables.QueryDatalinkMatrix(s1, s2);
+                    if (tier > best) best = tier;
                 }
             }
 
-            // 2. Search taskforce aircraft (AWACS & fighters for ARH mid-course or MiG-31 Zaslon SARH)
-            if ((!isSarh || reqSarhFam == SarhIllumFamily.RuZaslonPesa) && tf._taskforceAircraft != null)
+            // Handle Intra-Flight constraint for stealth aircraft (IFDL / MADL / APD-518)
+            if (best == InteractionTier.Tier1_IntraFlightOnly)
             {
-                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
-                {
-                    EvaluateHandoffCooperator(
-                        missile, ap, target, targetPos, isSarh, allowSarhCarrierMidCourse: false, reqNet, reqSarhFam, current,
-                        launcherAlive, launcherAirborne, launcherAntennaY, launcherPos,
-                        tf._taskforceAircraft[i], ref best, ref bestScore);
-                }
+                if (!IsSameFlightGroup(shooter, consort))
+                    return InteractionTier.Incompatible;
             }
 
-            // 3. Search taskforce helicopters (Ka-31 / Z-18J AEW for ARH mid-course)
-            if (!isSarh && tf._taskforceHelicopters != null)
+            // Handle Gateway Required (e.g. F-35 MADL to ship requires E-2D Hawkeye)
+            if (best == InteractionTier.GatewayRequired)
             {
-                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
-                {
-                    EvaluateHandoffCooperator(
-                        missile, ap, target, targetPos, isSarh, allowSarhCarrierMidCourse: false, reqNet, reqSarhFam, current,
-                        launcherAlive, launcherAirborne, launcherAntennaY, launcherPos,
-                        tf._taskforceHelicopters[i], ref best, ref bestScore);
-                }
+                if (TaskforceHasActiveGateway(shooter._taskforce))
+                    return InteractionTier.Tier1_FullCec;
+                return InteractionTier.Tier2_CueOnly;
             }
 
             return best;
         }
 
-        private static void EvaluateHandoffCooperator(
-            Missile missile,
-            AmmunitionParameters ap,
-            ObjectBase target,
-            Vector3 targetPos,
-            bool isSarh,
-            bool allowSarhCarrierMidCourse,
-            CecNetwork reqNet,
-            SarhIllumFamily reqSarhFam,
-            SensorSystemRadar current,
-            bool launcherAlive,
-            bool launcherAirborne,
-            float launcherAntennaY,
-            Vector3 launcherPos,
-            ObjectBase cooperator,
-            ref SensorSystemRadar best,
-            ref float bestScore)
+        public static bool IsSameFlightGroup(ObjectBase a1, ObjectBase a2)
         {
-            if (cooperator == null || cooperator.IsDestroyed) return;
-            var systems = cooperator._obp?._sensorSystems;
-            if (systems == null) return;
+            if (a1 == null || a2 == null) return false;
+            if (a1 == a2) return true;
+            if (!(a1 is Aircraft ac1) || !(a2 is Aircraft ac2)) return false;
 
-            CecNetwork coopNet = GetPlatformNetwork(cooperator);
-            if ((reqNet & coopNet) == 0) return;
-
-            float coopAntennaY = DatalinkMastHeight(cooperator, requireRadarOn: true);
-            if (coopAntennaY < 0f) return;
-
-            if (launcherAlive && cooperator != missile._launchPlatform)
-            {
-                bool airborneLink = launcherAirborne || cooperator is Aircraft || cooperator is Helicopter;
-                float maxCap = airborneLink ? AirborneNetRangeCapUnits : SurfaceNetRangeCapUnits;
-                float linkDist = HorizontalDistance(launcherPos, cooperator.transform.position);
-                if (linkDist > maxCap) return;
-                if (launcherAntennaY >= 0f && !InLinkHorizon(launcherAntennaY, coopAntennaY, linkDist))
-                    return;
-            }
-
-            for (int i = 0; i < systems.Count; i++)
-            {
-                if (!(systems[i] is SensorSystemRadar r) || r == current) continue;
-                if (!QualifiesForHandoff(r, ap, isSarh, allowSarhCarrierMidCourse, reqNet, reqSarhFam, current?._systemName))
-                    continue;
-                if (r._mountObject == null) continue;
-
-                bool isCarrierMidCourse = allowSarhCarrierMidCourse && EgBridge.IsDatalinkCarrier(r) && !EgBridge.CanEgIlluminate(r);
-                // Real illuminators and single-radar guiders must see the target right now;
-                // a mid-course DatalinkCarrier under ExtendedGuidance only needs LOS to the missile while the CEC net tracks the target.
-                if (!isCarrierMidCourse && !RadarCanSee(r, target)) continue;
-                // Must also have radio line-of-sight / horizon to the missile for rear-reference or command uplink.
-                if (!RadarCanReachMissile(r, missile)) continue;
-
-                float dSq = (r._mountObject.transform.position - targetPos).sqrMagnitude;
-                // Prefer DatalinkCarrier during mid-course SARH under ExtendedGuidance so CW illuminator channels stay free until terminal.
-                if (isCarrierMidCourse)
-                    dSq *= 0.25f;
-
-                if (dSq < bestScore)
-                {
-                    bestScore = dSq;
-                    best = r;
-                }
-            }
+            ObjectBase leader1 = GetFlightLeader(ac1);
+            ObjectBase leader2 = GetFlightLeader(ac2);
+            return leader1 != null && leader1 == leader2;
         }
 
-        private static bool QualifiesForHandoff(
-            SensorSystemRadar r,
-            AmmunitionParameters ap,
-            bool isSarh,
-            bool allowSarhCarrierMidCourse,
-            CecNetwork reqNet,
-            SarhIllumFamily reqSarhFam,
-            string currentRadarName)
+        private static ObjectBase GetFlightLeader(Aircraft ac)
         {
-            if (r == null || r._baseObject == null || r._baseObject.IsDestroyed) return false;
-            if (r.Inoperable.Value || r._radar?._rp == null) return false;
+            if (_flightGroupLeaders.TryGetValue(ac, out var leader) && leader != null && !leader.IsDestroyed)
+                return leader;
 
-            // Allow idle Targeting SARH illuminators on non-EMCON consort vessels (cooperator already passed DatalinkMastHeight requireRadarOn: true).
-            if (!r.IsOn.Value && !(isSarh && r._type == SensorSystemRadar.RadarType.Targeting && !IsSyntheticDatalinkSensor(r) && !IsAwacsRadar(r)))
-                return false;
-
-            var compatible = ap._compatibleGuidanceSystems;
-            if (compatible != null && compatible.Count > 0 && !compatible.Contains(r._systemName))
-                return false;
-
-            if (isSarh)
-            {
-                if (IsAwacsRadar(r)) return false;
-
-                if (IsSyntheticDatalinkSensor(r))
-                {
-                    if (!allowSarhCarrierMidCourse || !r.IsOn.Value) return false;
-                    CecNetwork carrierNet = GetSensorNetwork(r);
-                    if ((carrierNet & reqNet) == 0) return false;
-                    return r.HasFreeChannels();
-                }
-
-                if (r._type != SensorSystemRadar.RadarType.Targeting &&
-                    r._type != SensorSystemRadar.RadarType.DirectedSearch)
-                    return false;
-
-                SarhIllumFamily rFam = GetSarhFamily(r);
-                bool match = (reqSarhFam != SarhIllumFamily.None && rFam == reqSarhFam) ||
-                             (!string.IsNullOrEmpty(currentRadarName) &&
-                              string.Equals(NormalizeRadarKey(r._systemName), NormalizeRadarKey(currentRadarName), StringComparison.OrdinalIgnoreCase));
-                if (!match) return false;
-                return r.HasFreeChannels();
-            }
-            else
-            {
-                // Mid-course datalink handoff for ARH / IIR / Command missiles
-                if (IsPureCwDishIlluminator(r._systemName)) return false;
-                CecNetwork rNet = GetSensorNetwork(r);
-                if ((rNet & reqNet) == 0) return false;
-
-                if (IsAwacsRadar(r) || IsCecMultifunctionRadar(r))
-                    EnsureMidCourseChannels(r);
-                else if (r._type != SensorSystemRadar.RadarType.Targeting &&
-                         r._type != SensorSystemRadar.RadarType.DirectedSearch)
-                    return false;
-
-                return r.HasFreeChannels();
-            }
+            leader = ac.ActiveFormationLeader ?? ac.Formation?.LeaderStation?.UnitObject ?? ac;
+            _flightGroupLeaders.Remove(ac);
+            _flightGroupLeaders.Add(ac, leader);
+            return leader;
         }
 
-        // =========================================================================================
-        // 8. OTH / EMCON "ENGAGE-ON-REMOTE" & COOPERATIVE TRACKING
-        // =========================================================================================
-
-        /// <summary>
-        /// True if <paramref name="shooter"/> is part of a CEC network and a cooperative unit (AWACS or
-        /// forward ship/fighter) in the same taskforce and network is actively tracking <paramref name="target"/>.
-        /// Works even when <paramref name="shooter"/> has its own radars switched OFF (EMCON).
-        /// </summary>
-        public static bool HasCooperativeAirTrack(
-            ObjectBase shooter,
-            ObjectBase target,
-            ObjectBase.SensorRangeOptions options = default)
+        public static bool TaskforceHasActiveGateway(Taskforce tf)
         {
-            if (shooter == null || shooter.IsDestroyed || target == null || target.IsDestroyed) return false;
-            if (!target.isAirTarget()) return false;
-
-            var tf = shooter._taskforce;
             if (tf == null) return false;
-
-            CecNetwork shooterNet = GetPlatformNetwork(shooter);
-            if (shooterNet == CecNetwork.None) return false;
-
-            float shooterAntennaY = DatalinkMastHeight(shooter, requireRadarOn: false);
-            if (shooterAntennaY < 0f) return false;
-
-            bool shooterAirborne = shooter is Aircraft || shooter is Helicopter;
-            var shooterPos = shooter.transform.position;
-
-            // Check taskforce aircraft (AWACS / fighters) first — most common OTH track source
-            if (tf._taskforceAircraft != null)
-            {
-                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
-                {
-                    if (CooperatorSeesAirTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
-                                                tf._taskforceAircraft[i], target))
-                        return true;
-                }
-            }
-
-            // Check taskforce helicopters (Ka-31, Z-18J AEW)
-            if (tf._taskforceHelicopters != null)
-            {
-                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
-                {
-                    if (CooperatorSeesAirTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
-                                                tf._taskforceHelicopters[i], target))
-                        return true;
-                }
-            }
-
-            // Check taskforce surface vessels (forward picket ships)
-            if (tf._taskforceVessels != null)
-            {
-                for (int i = 0; i < tf._taskforceVessels.Count; i++)
-                {
-                    if (CooperatorSeesAirTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
-                                                tf._taskforceVessels[i], target))
-                        return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool CooperatorSeesAirTarget(
-            ObjectBase shooter,
-            Vector3 shooterPos,
-            float shooterAntennaY,
-            bool shooterAirborne,
-            CecNetwork shooterNet,
-            ObjectBase cooperator,
-            ObjectBase target)
-        {
-            if (cooperator == null || cooperator == shooter || cooperator.IsDestroyed) return false;
-            var systems = cooperator._obp?._sensorSystems;
-            if (systems == null) return false;
-
-            CecNetwork coopNet = GetPlatformNetwork(cooperator);
-            if ((shooterNet & coopNet) == 0) return false;
-
-            bool airborneLink = shooterAirborne || cooperator is Aircraft || cooperator is Helicopter;
-            float maxCap = airborneLink ? AirborneNetRangeCapUnits : SurfaceNetRangeCapUnits;
-            float linkDist = HorizontalDistance(shooterPos, cooperator.transform.position);
-            if (linkDist > maxCap) return false;
-
-            float coopAntennaY = DatalinkMastHeight(cooperator, requireRadarOn: true);
-            if (coopAntennaY < 0f) return false;
-            if (!InLinkHorizon(shooterAntennaY, coopAntennaY, linkDist)) return false;
-
-            float distToTarget = HorizontalDistance(cooperator.transform.position, target.transform.position);
-            for (int i = 0; i < systems.Count; i++)
-            {
-                if (!(systems[i] is SensorSystemRadar r)) continue;
-                if (!UsableGuidanceRadar(r) || !r.CanSeeAirTargets) continue;
-                if (!r._radar._rp._hasDataLink && GetSensorNetwork(r) == CecNetwork.None) continue;
-
-                if (RadarCanSee(r, target))
-                {
-                    var rangeData = r.GetRange(target);
-                    if (rangeData != null && distToTarget <= rangeData.Distance)
-                        return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Checks whether an allied CEC consort has a compatible operational FCR / illuminator that can
-        /// cover <paramref name="target"/> at its current position, lifting the shooter's local FCR horizon limit.
-        /// </summary>
-        public static bool HasRemoteFcrCoverage(ObjectBase shooter, AmmunitionParameters ap, ObjectBase target)
-        {
-            if (shooter == null || shooter.IsDestroyed || ap == null || target == null || target.IsDestroyed)
-                return false;
-
-            var tf = shooter._taskforce;
-            if (tf == null) return false;
-
-            CecNetwork shooterNet = GetPlatformNetwork(shooter);
-            if (shooterNet == CecNetwork.None) return false;
-
-            float shooterAntennaY = DatalinkMastHeight(shooter, requireRadarOn: false);
-            if (shooterAntennaY < 0f) return false;
-
-            bool isSarh = ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
-            SarhIllumFamily reqFam = isSarh ? GetRequiredSarhFamily(shooter) : SarhIllumFamily.None;
-
-            // For ARH / Datalink missiles, any cooperative air track in the CEC net satisfies mid-course FCR range.
-            if (!isSarh && ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance)
-            {
-                return HasCooperativeAirTrack(shooter, target);
-            }
-
-            // For SARH missiles, a forward CEC consort must have a compatible illuminator within range & horizon of target.
-            if (tf._taskforceVessels != null)
-            {
-                var shooterPos = shooter.transform.position;
-                for (int i = 0; i < tf._taskforceVessels.Count; i++)
-                {
-                    var vessel = tf._taskforceVessels[i];
-                    if (vessel == null || vessel == shooter || vessel.IsDestroyed) continue;
-                    var systems = vessel._obp?._sensorSystems;
-                    if (systems == null) continue;
-                    if ((GetPlatformNetwork(vessel) & shooterNet) == 0) continue;
-
-                    float linkDist = HorizontalDistance(shooterPos, vessel.transform.position);
-                    if (linkDist > SurfaceNetRangeCapUnits) continue;
-                    float coopAntennaY = DatalinkMastHeight(vessel, requireRadarOn: true);
-                    if (coopAntennaY < 0f || !InLinkHorizon(shooterAntennaY, coopAntennaY, linkDist)) continue;
-
-                    for (int j = 0; j < systems.Count; j++)
-                    {
-                        if (!(systems[j] is SensorSystemRadar r)) continue;
-                        if (r.Inoperable.Value || r._radar?._rp == null || r._mountObject == null) continue;
-                        if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)) continue;
-                        if (reqFam != SarhIllumFamily.None && GetSarhFamily(r) != reqFam) continue;
-                        if (!r.HasFreeChannels()) continue;
-                        if (RadarCanSee(r, target))
-                            return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// True if <paramref name="platform"/> currently has all of its own air-search radars switched OFF (EMCON).
-        /// </summary>
-        public static bool IsPlatformInAirRadarEmcon(ObjectBase platform)
-        {
-            var systems = platform?._obp?._sensorSystems;
-            if (systems == null) return false;
-            bool hasAirSearchRadar = false;
-            for (int i = 0; i < systems.Count; i++)
-            {
-                if (!(systems[i] is SensorSystemRadar r)) continue;
-                if (r.Inoperable.Value || r._radar?._rp == null || !r.CanSeeAirTargets) continue;
-                if (IsSyntheticDatalinkSensor(r) || IsPureCwDishIlluminator(r._systemName)) continue;
-                if (r._type == SensorSystemRadar.RadarType.Search ||
-                    r._type == SensorSystemRadar.RadarType.DirectedSearch)
-                {
-                    hasAirSearchRadar = true;
-                    if (r.IsOn.Value) return false;
-                }
-            }
-            return hasAirSearchRadar;
-        }
-
-        /// <summary>
-        /// True if <paramref name="platform"/> itself has at least one active non-synthetic radar
-        /// currently able to detect <paramref name="target"/> within range and radar horizon.
-        /// </summary>
-        public static bool HasLocalRadarSight(ObjectBase platform, ObjectBase target)
-        {
-            if (platform == null || platform.IsDestroyed || target == null || target.IsDestroyed) return false;
-            var systems = platform._obp?._sensorSystems;
-            if (systems == null) return false;
-
-            float distToTarget = HorizontalDistance(platform.transform.position, target.transform.position);
-            for (int i = 0; i < systems.Count; i++)
-            {
-                if (!(systems[i] is SensorSystemRadar r)) continue;
-                if (!UsableGuidanceRadar(r) || IsSyntheticDatalinkSensor(r)) continue;
-                if (target.isAirTarget() && !r.CanSeeAirTargets) continue;
-                if (!RadarCanSee(r, target)) continue;
-
-                var rangeData = r.GetRange(target);
-                if (rangeData != null && distToTarget <= rangeData.Distance)
-                    return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// True if a cooperative CEC/AWACS unit in <paramref name="shooter"/>'s network is actively
-        /// tracking <paramref name="target"/> (air or surface) on radar within datalink horizon.
-        /// </summary>
-        public static bool HasCooperativeTrack(ObjectBase shooter, ObjectBase target)
-        {
-            if (shooter == null || shooter.IsDestroyed || target == null || target.IsDestroyed) return false;
-            if (target.isAirTarget())
-                return HasCooperativeAirTrack(shooter, target);
-
-            var tf = shooter._taskforce;
-            if (tf == null) return false;
-
-            CecNetwork shooterNet = GetPlatformNetwork(shooter);
-            if (shooterNet == CecNetwork.None) return false;
-
-            float shooterAntennaY = DatalinkMastHeight(shooter, requireRadarOn: false);
-            if (shooterAntennaY < 0f) return false;
-
-            bool shooterAirborne = shooter is Aircraft || shooter is Helicopter;
-            var shooterPos = shooter.transform.position;
 
             if (tf._taskforceAircraft != null)
             {
                 for (int i = 0; i < tf._taskforceAircraft.Count; i++)
                 {
-                    if (CooperatorSeesAnyTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
-                                                tf._taskforceAircraft[i], target))
+                    var ac = tf._taskforceAircraft[i];
+                    if (ac != null && !ac.IsDestroyed && GetPlatformProfile(ac).IsGateway)
                         return true;
                 }
             }
-            if (tf._taskforceHelicopters != null)
-            {
-                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
-                {
-                    if (CooperatorSeesAnyTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
-                                                tf._taskforceHelicopters[i], target))
-                        return true;
-                }
-            }
+
             if (tf._taskforceVessels != null)
             {
                 for (int i = 0; i < tf._taskforceVessels.Count; i++)
                 {
-                    if (CooperatorSeesAnyTarget(shooter, shooterPos, shooterAntennaY, shooterAirborne, shooterNet,
-                                                tf._taskforceVessels[i], target))
+                    var v = tf._taskforceVessels[i];
+                    if (v != null && !v.IsDestroyed && GetPlatformProfile(v).IsGateway)
                         return true;
                 }
             }
+
             return false;
         }
 
-        private static bool CooperatorSeesAnyTarget(
-            ObjectBase shooter,
-            Vector3 shooterPos,
-            float shooterAntennaY,
-            bool shooterAirborne,
-            CecNetwork shooterNet,
-            ObjectBase cooperator,
-            ObjectBase target)
+        // =========================================================================================
+        // 3. RANGE & HORIZON PHYSICS
+        // =========================================================================================
+
+        public static bool ArePlatformsInDatalinkReach(ObjectBase p1, ObjectBase p2, float linkDist)
         {
-            if (cooperator == null || cooperator == shooter || cooperator.IsDestroyed) return false;
-            var systems = cooperator._obp?._sensorSystems;
-            if (systems == null) return false;
+            float h1 = DatalinkMastHeight(p1, requireRadarOn: false);
+            float h2 = DatalinkMastHeight(p2, requireRadarOn: true);
+            if (h1 < 0f || h2 < 0f) return false;
 
-            CecNetwork coopNet = GetPlatformNetwork(cooperator);
-            if ((shooterNet & coopNet) == 0) return false;
+            // If SATCOM transceiver present, range is planetary
+            if (HasSatcomTransceiver(p1) || HasSatcomTransceiver(p2)) return true;
 
-            bool airborneLink = shooterAirborne || cooperator is Aircraft || cooperator is Helicopter;
-            float maxCap = airborneLink ? AirborneNetRangeCapUnits : SurfaceNetRangeCapUnits;
-            float linkDist = HorizontalDistance(shooterPos, cooperator.transform.position);
-            if (linkDist > maxCap) return false;
+            float horizon = RadarCalculator.getRadarHorizon(h1, h2, visual: false, 0f);
+            float maxInstrumented = Mathf.Min(GetMaxDatalinkRange(p1), GetMaxDatalinkRange(p2));
+            float maxReach = Mathf.Min(horizon, maxInstrumented);
+            return linkDist <= maxReach;
+        }
 
-            float coopAntennaY = DatalinkMastHeight(cooperator, requireRadarOn: true);
-            if (coopAntennaY < 0f || !InLinkHorizon(shooterAntennaY, coopAntennaY, linkDist)) return false;
+        public static float GetMaxDatalinkRange(ObjectBase p)
+        {
+            if (p == null) return 0f;
+            if (p is Aircraft || p is Helicopter)
+                return 300f * 27.559496f; // ~300 nmi in Unity world units
+            return 150f * 27.559496f; // ~150 nmi surface LOS cap
+        }
 
-            float distToTarget = HorizontalDistance(cooperator.transform.position, target.transform.position);
-            for (int i = 0; i < systems.Count; i++)
+        public static bool HasSatcomTransceiver(ObjectBase p)
+        {
+            if (p == null) return false;
+            var prof = GetPlatformProfile(p);
+            if ((prof.Datalinks & DatalinkStandard.SatcomUplink) != 0) return true;
+
+            var systems = p._obp?._sensorSystems;
+            if (systems != null)
             {
-                if (!(systems[i] is SensorSystemRadar r)) continue;
-                if (!UsableGuidanceRadar(r) || IsSyntheticDatalinkSensor(r)) continue;
-                if (!r._radar._rp._hasDataLink && GetSensorNetwork(r) == CecNetwork.None) continue;
-
-                if (RadarCanSee(r, target))
+                for (int i = 0; i < systems.Count; i++)
                 {
-                    var rangeData = r.GetRange(target);
-                    if (rangeData != null && distToTarget <= rangeData.Distance)
+                    string sysName = systems[i]?._systemName;
+                    if (!string.IsNullOrEmpty(sysName) &&
+                        (sysName.IndexOf("GPS", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         sysName.IndexOf("SATCOM", StringComparison.OrdinalIgnoreCase) >= 0))
                         return true;
                 }
             }
             return false;
         }
 
-        // =========================================================================================
-        // 9. LOW-LEVEL GEOMETRY & RADAR HELPERS
-        // =========================================================================================
-
-        private static bool IsCecMultifunctionRadar(SensorSystemRadar r)
-        {
-            if (r == null || string.IsNullOrEmpty(r._systemName)) return false;
-            string n = NormalizeRadarKey(r._systemName);
-            return n.StartsWith("SPY-", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("eu_SPY-", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("CEAFAR", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("eu_apar", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("eu_SAMPSON", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("EMPAR", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("eu_EMPAR", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("eu_MFRA", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("eu_KRONOS", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("Herakles", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("eu_Herakles", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("Sea_fire_500", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("eu_Sea-fire-500", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("LJG-346", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("LJQ-346", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("Type346", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("Type_346", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("Type 346", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("LJG-XX-054B", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("rfn_5p20k", StringComparison.OrdinalIgnoreCase) ||
-                   n.StartsWith("rfn_mf_rlk", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static void EnsureMidCourseChannels(SensorSystemRadar r)
-        {
-            if (r._targetChannels <= 0) r._targetChannels = 32;
-            if (r._weaponChannels <= 0) r._weaponChannels = 32;
-        }
-
-        private static CecNetwork InferNetworkFromAmmoName(string ammoName)
-        {
-            if (string.IsNullOrEmpty(ammoName)) return CecNetwork.None;
-            if (ammoName.StartsWith("usn_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("usa_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("usaf_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("dts_aim-", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("jmsdf_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("jp_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("rok_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("fork_agm-", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("fork_jp_", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.WesternJoint;
-
-            if (ammoName.StartsWith("mbda_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("fr_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("eu_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("spa_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("ger_", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.WesternJoint;
-
-            if (ammoName.StartsWith("rfn_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("wp_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("su_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("fork_3m", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.RuJoint;
-
-            if (ammoName.StartsWith("fork_48n6", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.RuJoint | CecNetwork.PlaJoint;
-
-            if (ammoName.StartsWith("plan_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("pla_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("plaaf_", StringComparison.OrdinalIgnoreCase))
-                return CecNetwork.PlaJoint;
-
-            return CecNetwork.None;
-        }
-
-        public static bool UsableGuidanceRadar(SensorSystemRadar r)
-        {
-            if (r == null || r._baseObject == null || r._baseObject.IsDestroyed) return false;
-            if (r.Inoperable.Value || !r.IsOn.Value) return false;
-            return r._radar?._rp != null;
-        }
-
-        /// <summary>
-        /// Height of the platform's highest datalink-capable radar mount, or -1f if none.
-        /// When <paramref name="requireRadarOn"/> is false (for the shooter/receiver), an intact mast
-        /// suffices even if the ship's high-power search radar transmitter is off for EMCON.
-        /// </summary>
         public static float DatalinkMastHeight(ObjectBase platform, bool requireRadarOn)
         {
             var systems = platform?._obp?._sensorSystems;
             if (systems == null) return -1f;
+
             float best = -1f;
             for (int i = 0; i < systems.Count; i++)
             {
                 if (!(systems[i] is SensorSystemRadar r)) continue;
                 if (r.Inoperable.Value || r._radar?._rp == null || r._mountObject == null) continue;
                 if (requireRadarOn && !r.IsOn.Value) continue;
-                if (r._radar._rp._hasDataLink || GetSensorNetwork(r) != CecNetwork.None)
+
+                var rProf = GetRadarProfile(r);
+                if (r._radar._rp._hasDataLink || rProf.CecTier != CecTier.Tier0 || rProf.Datalinks != DatalinkStandard.None || rProf.IsSyntheticDatalink)
                 {
                     float y = r._mountObject.transform.position.y;
                     if (y > best) best = y;
                 }
             }
+
+            if (best < 0f && platform != null && (platform is Aircraft || platform is Helicopter || platform is Vessel))
+            {
+                best = Mathf.Max(platform.transform.position.y, 10f);
+            }
+
             return best;
         }
 
@@ -1716,6 +412,1084 @@ namespace CecMod
         {
             a.y = b.y;
             return (a - b).magnitude;
+        }
+
+        public static bool UsableGuidanceRadar(SensorSystemRadar r)
+        {
+            if (r == null || r._baseObject == null || r._baseObject.IsDestroyed) return false;
+            if (r.Inoperable.Value || !r.IsOn.Value) return false;
+            return r._radar?._rp != null;
+        }
+
+        public static bool IsPlatformInAirRadarEmcon(ObjectBase platform)
+        {
+            var radars = platform?._obp?._airSearchRadars;
+            if (radars != null && radars.Count > 0)
+            {
+                for (int i = 0; i < radars.Count; i++)
+                {
+                    var r = radars[i];
+                    if (r != null && !r.Inoperable.Value && r.IsOn.Value)
+                        return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public static bool IsPlatformInSurfaceRadarEmcon(ObjectBase platform)
+        {
+            var radars = platform?._obp?._surfaceSearchRadars;
+            if (radars != null && radars.Count > 0)
+            {
+                for (int i = 0; i < radars.Count; i++)
+                {
+                    var r = radars[i];
+                    if (r != null && !r.Inoperable.Value && r.IsOn.Value)
+                        return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public static bool HasLocalRadarSight(ObjectBase platform, ObjectBase target)
+        {
+            if (platform == null || platform.IsDestroyed || target == null || target.IsDestroyed) return false;
+
+            // If platform is in air EMCON and target is airborne, local radar sight is impossible
+            if (target.isAirTarget() && IsPlatformInAirRadarEmcon(platform))
+                return false;
+
+            // If platform is in surface EMCON and target is on the surface, local radar sight is impossible
+            bool isSurface = !target.isAirTarget() && !(target is Submarine);
+            if (isSurface && IsPlatformInSurfaceRadarEmcon(platform))
+                return false;
+
+            // If the platform has not even spotted the object organically, it cannot have local radar sight
+            if (platform._spottedObjects != null && !platform._spottedObjects.Contains(target))
+                return false;
+
+            var systems = platform._obp?._sensorSystems;
+            if (systems == null) return false;
+
+            float distToTarget = HorizontalDistance(platform.transform.position, target.transform.position);
+            for (int i = 0; i < systems.Count; i++)
+            {
+                if (!(systems[i] is SensorSystemRadar r)) continue;
+                if (!UsableGuidanceRadar(r) || IsSyntheticDatalinkSensor(r)) continue;
+                if (target.isAirTarget() && !r.CanSeeAirTargets) continue;
+                if (!RadarCanSee(r, target)) continue;
+
+                var rangeData = r.GetRange(target);
+                if (rangeData != null && distToTarget <= rangeData.Distance)
+                    return true;
+            }
+            return false;
+        }
+
+        // =========================================================================================
+        // 4. STRICT 4-TIER GATING ENGINE
+        // =========================================================================================
+
+        /// <summary>
+        /// Evaluates whether <paramref name="shooter"/> can fire <paramref name="ap"/> at
+        /// <paramref name="target"/> using remote CEC/NIFC-CA or Mountain Top Forward Pass guidance.
+        /// </summary>
+        public static bool CanPerformLaunchOnRemote(ObjectBase shooter, AmmunitionParameters ap, ObjectBase target)
+        {
+            if (shooter == null || shooter.IsDestroyed || target == null || target.IsDestroyed)
+                return false;
+
+            var shooterProfile = GetPlatformProfile(shooter);
+            bool shooterSatcom = (shooterProfile.Datalinks & DatalinkStandard.SatcomUplink) != 0;
+            if (shooterProfile.CecTier != CecTier.Tier1 && !shooterSatcom)
+                return false;
+
+            if (ap == null)
+            {
+                var wsList = shooter._obp?._weaponSystems;
+                if (wsList != null)
+                {
+                    for (int i = 0; i < wsList.Count; i++)
+                    {
+                        var ws = wsList[i];
+                        if (ws?._ammoForEngage?._ap != null && CanPerformLaunchOnRemote(shooter, ws._ammoForEngage._ap, target))
+                            return true;
+                        if (ws?._ammunitionOnWeapon?._ap != null && CanPerformLaunchOnRemote(shooter, ws._ammunitionOnWeapon._ap, target))
+                            return true;
+
+                        var magList = ws?._vwp?._associatedMagazine?._ammunitionList;
+                        if (magList != null)
+                        {
+                            for (int j = 0; j < magList.Count; j++)
+                            {
+                                if (magList[j]?._ap != null && CanPerformLaunchOnRemote(shooter, magList[j]._ap, target))
+                                    return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+
+            var missileProfile = GetMissileProfile(ap);
+            if (missileProfile.CecTier == CecTier.Tier3 || missileProfile.CecTier == CecTier.Tier0)
+                return false;
+
+            var tf = shooter._taskforce;
+            if (tf == null)
+                return false;
+
+            bool isSarh = ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming
+                          || missileProfile.GuidanceFamily == GuidanceFamily.SARH
+                          || missileProfile.GuidanceFamily == GuidanceFamily.TVM;
+
+            // 1. Tier 1 ARH / IR / ARM / Command blind Launch-on-Remote
+            if (!isSarh && missileProfile.AllowLaunchOnRemote)
+            {
+                return HasTrackingCooperatorForRemoteLaunch(shooter, target);
+            }
+
+            // 2. Tier 2 SARH Forward Pass (Project Mountain Top)
+            if (isSarh)
+            {
+                return HasForwardPassIlluminatorCoverage(shooter, ap, target);
+            }
+
+            return false;
+        }
+
+        private static bool HasTrackingCooperatorForRemoteLaunch(ObjectBase shooter, ObjectBase target)
+        {
+            var tf = shooter._taskforce;
+            if (tf == null) return false;
+
+            if (tf._taskforceAircraft != null)
+            {
+                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
+                {
+                    if (QualifiesAsRemoteTracker(shooter, tf._taskforceAircraft[i], target))
+                        return true;
+                }
+            }
+            if (tf._taskforceHelicopters != null)
+            {
+                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
+                {
+                    if (QualifiesAsRemoteTracker(shooter, tf._taskforceHelicopters[i], target))
+                        return true;
+                }
+            }
+            if (tf._taskforceVessels != null)
+            {
+                for (int i = 0; i < tf._taskforceVessels.Count; i++)
+                {
+                    if (QualifiesAsRemoteTracker(shooter, tf._taskforceVessels[i], target))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool QualifiesAsRemoteTracker(ObjectBase shooter, ObjectBase cooperator, ObjectBase target)
+        {
+            if (cooperator == null || cooperator == shooter || cooperator.IsDestroyed) return false;
+
+            var coopProfile = GetPlatformProfile(cooperator);
+            bool coopSatcom = (coopProfile.Datalinks & DatalinkStandard.SatcomUplink) != 0;
+            if (coopProfile.CecTier != CecTier.Tier1 && !coopSatcom) return false;
+
+            InteractionTier interaction = EvaluateInteraction(shooter, cooperator);
+            if (interaction != InteractionTier.Tier1_FullCec &&
+                interaction != InteractionTier.SatcomGlobal &&
+                interaction != InteractionTier.Tier1_IntraFlightOnly)
+                return false;
+
+            float linkDist = HorizontalDistance(shooter.transform.position, cooperator.transform.position);
+            if (!ArePlatformsInDatalinkReach(shooter, cooperator, linkDist)) return false;
+
+            return CooperatorSeesTarget(cooperator, target);
+        }
+
+        private static bool HasForwardPassIlluminatorCoverage(ObjectBase shooter, AmmunitionParameters ap, ObjectBase target)
+        {
+            var tf = shooter._taskforce;
+            if (tf == null) return false;
+
+            SarhIllumFamily reqFam = GetMissileProfile(ap).RequiredSarhFamily;
+            if (reqFam == SarhIllumFamily.None) reqFam = GetRequiredSarhFamily(shooter);
+
+            if (tf._taskforceVessels != null)
+            {
+                for (int i = 0; i < tf._taskforceVessels.Count; i++)
+                {
+                    if (ConsortHasIlluminatorForTarget(shooter, tf._taskforceVessels[i], reqFam, target))
+                        return true;
+                }
+            }
+            if (tf._taskforceAircraft != null)
+            {
+                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
+                {
+                    if (ConsortHasIlluminatorForTarget(shooter, tf._taskforceAircraft[i], reqFam, target))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool ConsortHasIlluminatorForTarget(ObjectBase shooter, ObjectBase consort, SarhIllumFamily reqFam, ObjectBase target)
+        {
+            if (consort == null || consort == shooter || consort.IsDestroyed) return false;
+
+            InteractionTier interaction = EvaluateInteraction(shooter, consort);
+            if (interaction != InteractionTier.Tier1_FullCec &&
+                interaction != InteractionTier.SatcomGlobal &&
+                interaction != InteractionTier.Tier1_IntraFlightOnly)
+                return false;
+
+            float linkDist = HorizontalDistance(shooter.transform.position, consort.transform.position);
+            if (!ArePlatformsInDatalinkReach(shooter, consort, linkDist)) return false;
+
+            var systems = consort._obp?._sensorSystems;
+            if (systems == null) return false;
+
+            for (int j = 0; j < systems.Count; j++)
+            {
+                if (!(systems[j] is SensorSystemRadar r)) continue;
+                if (r.Inoperable.Value || r._radar?._rp == null || r._mountObject == null) continue;
+                if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)) continue;
+                if (reqFam != SarhIllumFamily.None && GetSarhFamily(r) != reqFam) continue;
+                if (!r.HasFreeChannels()) continue;
+                if (RadarCanSee(r, target))
+                    return true;
+            }
+
+            return false;
+        }
+
+        public static bool CanRadarGuideWeapon(SensorSystemRadar r)
+        {
+            if (r == null || r._baseObject == null || r._baseObject.IsDestroyed)
+                return false;
+            if (r.Inoperable.Value || r._radar?._rp == null)
+                return false;
+            if (IsPlatformInAirRadarEmcon(r._baseObject))
+                return false;
+            return true;
+        }
+
+        public static bool CanPerformMidCourseHandoff(Missile m, SensorSystemRadar candidateRadar)
+        {
+            if (m == null || m.IsDestroyed || candidateRadar == null)
+                return false;
+
+            var missileProfile = GetMissileProfile(m._ap);
+            if (!missileProfile.AllowMidCourseHandoff)
+                return false;
+
+            ObjectBase shooter = m._launchPlatform;
+            ObjectBase candidateHost = candidateRadar._baseObject;
+            if (candidateHost == null || candidateHost.IsDestroyed)
+                return false;
+
+            if (shooter != null)
+            {
+                InteractionTier tier = EvaluateInteraction(shooter, candidateHost);
+                if (tier != InteractionTier.Tier1_FullCec
+                    && tier != InteractionTier.Tier2_MidcourseRescue
+                    && tier != InteractionTier.SatcomGlobal
+                    && tier != InteractionTier.Tier1_IntraFlightOnly)
+                {
+                    return false;
+                }
+
+                if (!shooter.IsDestroyed)
+                {
+                    float linkDist = HorizontalDistance(shooter.transform.position, candidateHost.transform.position);
+                    if (!ArePlatformsInDatalinkReach(shooter, candidateHost, linkDist))
+                        return false;
+                }
+            }
+
+            if (!CanRadarGuideWeapon(candidateRadar))
+                return false;
+
+            ObjectBase target = m.CurrentIntendedTargetObject;
+            if (target == null || target.IsDestroyed)
+                return false;
+
+            if (!candidateRadar.HasFreeTargetChannels(target) && !candidateRadar.IsAimedAtTarget(target))
+                return false;
+            if (!candidateRadar.HasFreeWeaponChannels() && !candidateRadar.IsGuidingWeapon(m))
+                return false;
+
+            if (!RadarCanSee(candidateRadar, target))
+                return false;
+
+            if (!RadarCanReachMissile(candidateRadar, m))
+                return false;
+
+            bool isSarh = m._ap?._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming
+                          || missileProfile.GuidanceFamily == GuidanceFamily.SARH
+                          || missileProfile.GuidanceFamily == GuidanceFamily.TVM;
+
+            if (isSarh)
+            {
+                SarhIllumFamily reqFam = missileProfile.RequiredSarhFamily;
+                if (reqFam == SarhIllumFamily.None && shooter != null)
+                    reqFam = GetRequiredSarhFamily(shooter);
+
+                if (reqFam != SarhIllumFamily.None && GetSarhFamily(candidateRadar) != reqFam)
+                    return false;
+            }
+
+            return true;
+        }
+
+        public static SensorSystemRadar FindHandoffRadar(Missile missile, bool requireTerminalIlluminator = false)
+        {
+            if (missile == null || missile.IsDestroyed || missile._ap == null)
+                return null;
+
+            var missileProfile = GetMissileProfile(missile._ap);
+            if (!missileProfile.AllowMidCourseHandoff)
+                return null;
+
+            ObjectBase target = missile.CurrentIntendedTargetObject;
+            if (target == null || target.IsDestroyed)
+                return null;
+
+            ObjectBase shooter = missile._launchPlatform;
+            bool isPlayer = missile.IsPlayerObject || (shooter != null && shooter.IsPlayerObject);
+
+            Taskforce tf = shooter?._taskforce
+                           ?? missile._taskforce
+                           ?? (isPlayer ? Globals._playerTaskforce : null)
+                           ?? missile.UnitTaskforce?.Value;
+
+            if (tf == null && Singleton<TaskforceManager>.InstanceExists() && Singleton<TaskforceManager>.Instance._taskForces != null)
+            {
+                var allTfs = Singleton<TaskforceManager>.Instance._taskForces;
+                for (int i = 0; i < allTfs.Count; i++)
+                {
+                    if (allTfs[i] != null && ((isPlayer && allTfs[i].Side == Taskforce.TfType.Player) || (!isPlayer && allTfs[i].Side != Taskforce.TfType.Player)))
+                    {
+                        tf = allTfs[i];
+                        break;
+                    }
+                }
+            }
+
+            if (tf == null)
+                return null;
+
+            SensorSystemRadar best = null;
+            float bestDistSq = float.MaxValue;
+
+            void CheckCooperator(ObjectBase cooperator)
+            {
+                if (cooperator == null || cooperator.IsDestroyed) return;
+                var systems = cooperator._obp?._sensorSystems;
+                if (systems == null) return;
+
+                for (int i = 0; i < systems.Count; i++)
+                {
+                    if (!(systems[i] is SensorSystemRadar r)) continue;
+                    if (requireTerminalIlluminator && (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)))
+                        continue;
+                    if (!CanPerformMidCourseHandoff(missile, r))
+                        continue;
+
+                    float distSq = (r._mountObject.transform.position - target.transform.position).sqrMagnitude;
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        best = r;
+                    }
+                }
+            }
+
+            if (tf._taskforceVessels != null)
+            {
+                for (int i = 0; i < tf._taskforceVessels.Count; i++)
+                    CheckCooperator(tf._taskforceVessels[i]);
+            }
+            if (tf._taskforceAircraft != null)
+            {
+                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
+                    CheckCooperator(tf._taskforceAircraft[i]);
+            }
+            if (tf._taskforceHelicopters != null)
+            {
+                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
+                    CheckCooperator(tf._taskforceHelicopters[i]);
+            }
+
+            return best;
+        }
+
+        // =========================================================================================
+        // 5. LAUNCH-TIME POOL INJECTION & SYNC
+        // =========================================================================================
+
+        public static void RefreshConsortRadars(WeaponSystem ws)
+        {
+            if (ws == null || ws._vwp == null || ws._baseObject == null) return;
+
+            ObjectBase launcher = ws._baseObject;
+            var launcherProfile = GetPlatformProfile(launcher);
+            if (launcherProfile.CecTier == CecTier.Tier3 || launcherProfile.CecTier == CecTier.Tier0)
+                return;
+
+            AmmunitionParameters ap = ws._ammoForEngage?._ap;
+            if (ap != null)
+            {
+                var mProfile = GetMissileProfile(ap);
+                if (mProfile.CecTier == CecTier.Tier3 || mProfile.CecTier == CecTier.Tier0)
+                    return;
+            }
+
+            var tf = launcher._taskforce;
+            if (tf == null) return;
+
+            GetLauncherGuidanceNeeds(ws, out bool needsSarh, out bool needsMidCourse);
+            if (!needsSarh && !needsMidCourse) return;
+
+            SarhIllumFamily launcherSarhFamily = GetRequiredSarhFamily(launcher, ws);
+
+            var nativeRadarNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (launcher._obp?._sensorSystems != null)
+            {
+                foreach (var s in launcher._obp._sensorSystems)
+                {
+                    if (s is SensorSystemRadar r && !string.IsNullOrEmpty(r._systemName))
+                    {
+                        nativeRadarNames.Add(r._systemName);
+                        nativeRadarNames.Add(NormalizeRadarKey(r._systemName));
+                    }
+                }
+            }
+
+            if (!_injectedSensors.TryGetValue(ws, out var injected))
+            {
+                injected = new HashSet<SensorSystem>();
+                _injectedSensors.Add(ws, injected);
+            }
+            if (!_injectedExternalNames.TryGetValue(ws, out var injectedExt))
+            {
+                injectedExt = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _injectedExternalNames.Add(ws, injectedExt);
+            }
+
+            var associated = ws._vwp._associatedSensors;
+            var externalGuidingSystems = ws._vwp._externalGuidingSystems;
+
+            for (int i = associated.Count - 1; i >= 0; i--)
+            {
+                SensorSystem s = associated[i];
+                if (injected.Contains(s))
+                {
+                    if (s == null || s._baseObject == null || s._baseObject.IsDestroyed || s.Inoperable.Value)
+                    {
+                        associated.RemoveAt(i);
+                        injected.Remove(s);
+                        if (externalGuidingSystems != null && !string.IsNullOrEmpty(s?._systemName))
+                        {
+                            externalGuidingSystems.Remove(s._systemName);
+                            injectedExt.Remove(s._systemName);
+                        }
+                    }
+                }
+            }
+
+            var deferredIdleIlluminators = new List<SensorSystemRadar>();
+
+            void TryInject(ObjectBase cooperator)
+            {
+                if (cooperator == null || cooperator == launcher || cooperator.IsDestroyed) return;
+
+                InteractionTier interaction = EvaluateInteraction(launcher, cooperator);
+                if (interaction != InteractionTier.Tier1_FullCec &&
+                    interaction != InteractionTier.SatcomGlobal &&
+                    interaction != InteractionTier.Tier1_IntraFlightOnly)
+                {
+                    return;
+                }
+
+                float linkDist = HorizontalDistance(launcher.transform.position, cooperator.transform.position);
+                if (!ArePlatformsInDatalinkReach(launcher, cooperator, linkDist)) return;
+
+                var systems = cooperator._obp?._sensorSystems;
+                if (systems == null) return;
+
+                for (int j = 0; j < systems.Count; j++)
+                {
+                    if (!(systems[j] is SensorSystemRadar r)) continue;
+                    if (r.Inoperable.Value || r._radar?._rp == null) continue;
+
+                    string rKey = NormalizeRadarKey(r._systemName);
+                    if (!r.IsOn.Value)
+                    {
+                        if (!needsSarh || r._type != SensorSystemRadar.RadarType.Targeting) continue;
+                        if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)) continue;
+
+                        SarhIllumFamily idleFam = GetSarhFamily(r);
+                        bool idleMatch = (launcherSarhFamily != SarhIllumFamily.None && idleFam == launcherSarhFamily) ||
+                                         nativeRadarNames.Contains(r._systemName) ||
+                                         nativeRadarNames.Contains(rKey);
+                        if (!idleMatch || !r.HasFreeChannels()) continue;
+
+                        deferredIdleIlluminators.Add(r);
+                        continue;
+                    }
+
+                    if (needsSarh && !IsSyntheticDatalinkSensor(r) && !IsAwacsRadar(r))
+                    {
+                        SarhIllumFamily rFam = GetSarhFamily(r);
+                        bool familyMatch = (launcherSarhFamily != SarhIllumFamily.None && rFam == launcherSarhFamily) ||
+                                           nativeRadarNames.Contains(r._systemName) ||
+                                           nativeRadarNames.Contains(rKey);
+                        if (familyMatch && r.HasFreeChannels())
+                        {
+                            if (!associated.Contains(r))
+                            {
+                                associated.Add(r);
+                                injected.Add(r);
+                            }
+                            if (externalGuidingSystems != null && !string.IsNullOrEmpty(r._systemName) &&
+                                !externalGuidingSystems.Contains(r._systemName))
+                            {
+                                externalGuidingSystems.Add(r._systemName);
+                                injectedExt.Add(r._systemName);
+                            }
+                            continue;
+                        }
+                    }
+
+                    if (needsMidCourse && !IsPureCwDishIlluminator(r._systemName))
+                    {
+                        if (IsAwacsRadar(r) || GetRadarProfile(r).IsMfr)
+                            EnsureMidCourseChannels(r);
+
+                        if (r.HasFreeChannels())
+                        {
+                            if (!associated.Contains(r))
+                            {
+                                associated.Add(r);
+                                injected.Add(r);
+                            }
+                            if (externalGuidingSystems != null && !string.IsNullOrEmpty(r._systemName) &&
+                                !externalGuidingSystems.Contains(r._systemName))
+                            {
+                                externalGuidingSystems.Add(r._systemName);
+                                injectedExt.Add(r._systemName);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (tf._taskforceVessels != null)
+            {
+                for (int i = 0; i < tf._taskforceVessels.Count; i++)
+                    TryInject(tf._taskforceVessels[i]);
+            }
+            if (tf._taskforceAircraft != null)
+                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
+                    TryInject(tf._taskforceAircraft[i]);
+            if (tf._taskforceHelicopters != null)
+                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
+                    TryInject(tf._taskforceHelicopters[i]);
+
+            for (int i = 0; i < deferredIdleIlluminators.Count; i++)
+            {
+                var r = deferredIdleIlluminators[i];
+                if (!associated.Contains(r))
+                {
+                    associated.Add(r);
+                    injected.Add(r);
+                }
+                if (externalGuidingSystems != null && !string.IsNullOrEmpty(r._systemName) &&
+                    !externalGuidingSystems.Contains(r._systemName))
+                {
+                    externalGuidingSystems.Add(r._systemName);
+                    injectedExt.Add(r._systemName);
+                }
+            }
+        }
+
+        public static void SyncConsortIlluminatorsToAmmo(WeaponSystem ws, AmmunitionParameters ap)
+        {
+            if (ws?._vwp?._associatedSensors == null) return;
+            if (!_injectedSensors.TryGetValue(ws, out var injected) || injected == null || injected.Count == 0)
+                return;
+
+            _injectedExternalNames.TryGetValue(ws, out var injectedExt);
+
+            if (ap == null) return;
+
+            var missileProfile = GetMissileProfile(ap);
+            if (missileProfile.CecTier == CecTier.Tier3 || missileProfile.CecTier == CecTier.Tier0)
+            {
+                var assocList = ws._vwp._associatedSensors;
+                for (int i = assocList.Count - 1; i >= 0; i--)
+                {
+                    var s = assocList[i];
+                    if (injected.Contains(s))
+                    {
+                        assocList.RemoveAt(i);
+                        injected.Remove(s);
+                        if (ws._vwp._externalGuidingSystems != null && !string.IsNullOrEmpty(s?._systemName))
+                        {
+                            ws._vwp._externalGuidingSystems.Remove(s._systemName);
+                            injectedExt?.Remove(s._systemName);
+                        }
+                    }
+                }
+                return;
+            }
+
+            bool isSarh = ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
+            SarhIllumFamily targetFam = isSarh ? missileProfile.RequiredSarhFamily : SarhIllumFamily.None;
+            if (isSarh && targetFam == SarhIllumFamily.None)
+                targetFam = GetRequiredSarhFamily(ws._baseObject, ws);
+
+            var associated = ws._vwp._associatedSensors;
+            for (int i = associated.Count - 1; i >= 0; i--)
+            {
+                SensorSystem s = associated[i];
+                if (!injected.Contains(s)) continue;
+
+                if (s is SensorSystemRadar r)
+                {
+                    bool keep = false;
+                    if (isSarh)
+                    {
+                        keep = !IsSyntheticDatalinkSensor(r) && !IsAwacsRadar(r) &&
+                               (targetFam == SarhIllumFamily.None || GetSarhFamily(r) == targetFam);
+                    }
+                    else
+                    {
+                        keep = !IsPureCwDishIlluminator(r._systemName);
+                    }
+
+                    if (!keep)
+                    {
+                        associated.RemoveAt(i);
+                        injected.Remove(s);
+                        if (ws._vwp._externalGuidingSystems != null && !string.IsNullOrEmpty(r._systemName))
+                        {
+                            ws._vwp._externalGuidingSystems.Remove(r._systemName);
+                            injectedExt?.Remove(r._systemName);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void GetLauncherGuidanceNeeds(WeaponSystem ws, out bool needsSarh, out bool needsMidCourse)
+        {
+            needsSarh = false;
+            needsMidCourse = false;
+            if (ws?._vwp == null) return;
+
+            InspectAmmoGuidanceNeeds(ws._ammoForEngage?._ap, ref needsSarh, ref needsMidCourse);
+            InspectAmmoGuidanceNeeds(ws._ammunitionOnWeapon?._ap, ref needsSarh, ref needsMidCourse);
+
+            var magList = ws._vwp._associatedMagazine?._ammunitionList;
+            if (magList != null)
+            {
+                for (int i = 0; i < magList.Count; i++)
+                {
+                    InspectAmmoGuidanceNeeds(magList[i]?._ap, ref needsSarh, ref needsMidCourse);
+                }
+            }
+        }
+
+        private static void InspectAmmoGuidanceNeeds(AmmunitionParameters ap, ref bool needsSarh, ref bool needsMidCourse)
+        {
+            if (ap == null) return;
+            if (ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
+                needsSarh = true;
+
+            if (ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance)
+                needsMidCourse = true;
+        }
+
+        public static bool IsCecMultifunctionRadar(SensorSystemRadar r)
+        {
+            if (r == null) return false;
+            return GetRadarProfile(r).IsMfr;
+        }
+
+        private static void EnsureMidCourseChannels(SensorSystemRadar r)
+        {
+            if (r == null) return;
+            if (r._targetChannels <= 0) r._targetChannels = 32;
+            if (r._weaponChannels <= 0) r._weaponChannels = 32;
+        }
+
+        // =========================================================================================
+        // 6. SITUATIONAL AWARENESS & TELEMETRY
+        // =========================================================================================
+
+        public static bool CanSensorGuideAmmo(SensorSystem sensor, AmmunitionParameters ap)
+        {
+            if (sensor == null || ap == null) return true;
+
+            if (ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming)
+            {
+                if (IsAwacsRadar(sensor)) return false;
+
+                if (IsSyntheticDatalinkSensor(sensor))
+                {
+                    if (!EgBridge.IsActive || ap._midCourseCorrection == null || !ap._midCourseCorrection.IsDatalink)
+                        return false;
+                    return true;
+                }
+            }
+
+            if ((ap._guidanceType == AmmunitionParameters.GuidanceType.ActiveRadarHoming ||
+                 ap._guidanceType == AmmunitionParameters.GuidanceType.IRHoming) &&
+                ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance &&
+                IsPureCwDishIlluminator(sensor._systemName))
+            {
+                if (PlatformHasDedicatedMidCourseSensor(sensor._baseObject, ap._associatedSensors))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool PlatformHasDedicatedMidCourseSensor(ObjectBase platform, List<SensorSystem> associated)
+        {
+            if (platform?._obp?._sensorSystems == null) return false;
+            var systems = platform._obp._sensorSystems;
+            for (int i = 0; i < systems.Count; i++)
+            {
+                if (systems[i] is SensorSystemRadar r)
+                {
+                    if (r.Inoperable.Value || r._radar?._rp == null) continue;
+                    if (IsSyntheticDatalinkSensor(r) || GetRadarProfile(r).IsMfr)
+                    {
+                        if (associated == null || associated.Contains(r)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public static bool HasCooperativeAirTrack(ObjectBase shooter, ObjectBase target, ObjectBase.SensorRangeOptions options = default)
+        {
+            if (shooter == null || shooter.IsDestroyed || target == null || target.IsDestroyed) return false;
+            if (!target.isAirTarget()) return false;
+
+            var tf = shooter._taskforce;
+            if (tf == null) return false;
+
+            var shooterProfile = GetPlatformProfile(shooter);
+            if (shooterProfile.CecTier == CecTier.Tier0) return false;
+
+            float shooterAntennaY = DatalinkMastHeight(shooter, requireRadarOn: false);
+            if (shooterAntennaY < 0f) return false;
+
+            var shooterPos = shooter.transform.position;
+
+            bool CheckCoop(ObjectBase coop)
+            {
+                if (coop == null || coop == shooter || coop.IsDestroyed) return false;
+                InteractionTier tier = EvaluateInteraction(shooter, coop);
+                if (tier == InteractionTier.Incompatible) return false;
+
+                float linkDist = HorizontalDistance(shooterPos, coop.transform.position);
+                if (!ArePlatformsInDatalinkReach(shooter, coop, linkDist)) return false;
+
+                return CooperatorSeesTarget(coop, target);
+            }
+
+            if (tf._taskforceAircraft != null)
+            {
+                for (int i = 0; i < tf._taskforceAircraft.Count; i++)
+                    if (CheckCoop(tf._taskforceAircraft[i])) return true;
+            }
+            if (tf._taskforceHelicopters != null)
+            {
+                for (int i = 0; i < tf._taskforceHelicopters.Count; i++)
+                    if (CheckCoop(tf._taskforceHelicopters[i])) return true;
+            }
+            if (tf._taskforceVessels != null)
+            {
+                for (int i = 0; i < tf._taskforceVessels.Count; i++)
+                    if (CheckCoop(tf._taskforceVessels[i])) return true;
+            }
+
+            return false;
+        }
+
+        public static bool HasCooperativeTrack(ObjectBase shooter, ObjectBase target)
+        {
+            if (shooter == null || shooter.IsDestroyed || target == null || target.IsDestroyed) return false;
+            return HasCooperativeAirTrack(shooter, target);
+        }
+
+        public static bool HasRemoteFcrCoverage(ObjectBase shooter, AmmunitionParameters ap, ObjectBase target)
+        {
+            return CanPerformLaunchOnRemote(shooter, ap, target);
+        }
+
+        private static bool CooperatorSeesTarget(ObjectBase cooperator, ObjectBase target)
+        {
+            if (cooperator?._obp?._sensorSystems == null || target == null || target.IsDestroyed)
+                return false;
+
+            var systems = cooperator._obp._sensorSystems;
+            float distToTarget = HorizontalDistance(cooperator.transform.position, target.transform.position);
+
+            for (int i = 0; i < systems.Count; i++)
+            {
+                if (!(systems[i] is SensorSystemRadar r)) continue;
+                if (!UsableGuidanceRadar(r)) continue;
+                if (target.isAirTarget() && !r.CanSeeAirTargets) continue;
+
+                if (RadarCanSee(r, target))
+                {
+                    var rangeData = r.GetRange(target);
+                    if (rangeData != null && distToTarget <= rangeData.Distance)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        // =========================================================================================
+        // 7. HOVER TELEMETRY & UI FORMATTERS
+        // =========================================================================================
+
+        public static ObjectBase FindBestTrackingCooperator(ObjectBase shooter, ObjectBase target)
+        {
+            if (shooter == null || target == null || target.IsDestroyed) return null;
+            var tf = shooter._taskforce ?? Globals._playerTaskforce;
+            if (tf == null) return null;
+
+            ObjectBase best = null;
+            float bestDistSq = float.MaxValue;
+
+            void Check(ObjectBase coop)
+            {
+                if (coop == null || coop == shooter || coop.IsDestroyed) return;
+                InteractionTier tier = EvaluateInteraction(shooter, coop);
+                if (tier == InteractionTier.Incompatible) return;
+
+                if (!shooter.IsDestroyed)
+                {
+                    float linkDist = HorizontalDistance(shooter.transform.position, coop.transform.position);
+                    if (!ArePlatformsInDatalinkReach(shooter, coop, linkDist)) return;
+                }
+
+                if (CooperatorSeesTarget(coop, target))
+                {
+                    float distSq = (coop.transform.position - target.transform.position).sqrMagnitude;
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        best = coop;
+                    }
+                }
+            }
+
+            if (tf._taskforceAircraft != null)
+                for (int i = 0; i < tf._taskforceAircraft.Count; i++) Check(tf._taskforceAircraft[i]);
+
+            if (tf._taskforceHelicopters != null)
+                for (int i = 0; i < tf._taskforceHelicopters.Count; i++) Check(tf._taskforceHelicopters[i]);
+
+            if (tf._taskforceVessels != null)
+                for (int i = 0; i < tf._taskforceVessels.Count; i++) Check(tf._taskforceVessels[i]);
+
+            return best;
+        }
+
+        public static SensorSystemRadar FindConsortIlluminatorForTarget(ObjectBase shooter, AmmunitionParameters ap, ObjectBase target)
+        {
+            if (shooter == null || ap == null || target == null || target.IsDestroyed) return null;
+            var tf = shooter._taskforce;
+            if (tf == null) return null;
+
+            SarhIllumFamily reqFam = GetMissileProfile(ap).RequiredSarhFamily;
+            if (reqFam == SarhIllumFamily.None) reqFam = GetRequiredSarhFamily(shooter);
+
+            SensorSystemRadar best = null;
+            float bestDistSq = float.MaxValue;
+
+            void Check(ObjectBase consort)
+            {
+                if (consort == null || consort == shooter || consort.IsDestroyed) return;
+                InteractionTier tier = EvaluateInteraction(shooter, consort);
+                if (tier != InteractionTier.Tier1_FullCec && tier != InteractionTier.SatcomGlobal && tier != InteractionTier.Tier1_IntraFlightOnly)
+                    return;
+
+                float linkDist = HorizontalDistance(shooter.transform.position, consort.transform.position);
+                if (!ArePlatformsInDatalinkReach(shooter, consort, linkDist)) return;
+
+                var systems = consort._obp?._sensorSystems;
+                if (systems == null) return;
+
+                for (int i = 0; i < systems.Count; i++)
+                {
+                    if (!(systems[i] is SensorSystemRadar r)) continue;
+                    if (r.Inoperable.Value || r._radar?._rp == null) continue;
+                    if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)) continue;
+                    if (reqFam != SarhIllumFamily.None && GetSarhFamily(r) != reqFam) continue;
+                    if (!r.HasFreeChannels()) continue;
+                    if (!RadarCanSee(r, target)) continue;
+
+                    float distSq = (r._mountObject.transform.position - target.transform.position).sqrMagnitude;
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        best = r;
+                    }
+                }
+            }
+
+            if (tf._taskforceVessels != null)
+                for (int i = 0; i < tf._taskforceVessels.Count; i++) Check(tf._taskforceVessels[i]);
+
+            if (tf._taskforceAircraft != null)
+                for (int i = 0; i < tf._taskforceAircraft.Count; i++) Check(tf._taskforceAircraft[i]);
+
+            return best;
+        }
+
+        public static string GetDatalinkProtocolDisplayName(DatalinkStandard d1, DatalinkStandard d2)
+        {
+            if ((d1 & DatalinkStandard.SatcomUplink) != 0 || (d2 & DatalinkStandard.SatcomUplink) != 0)
+                return "SATCOM";
+            if ((d1 & DatalinkStandard.Usg2Cec) != 0 && (d2 & DatalinkStandard.Usg2Cec) != 0)
+                return "USG-2 CEC";
+            if ((d1 & DatalinkStandard.Ttnt) != 0 && (d2 & DatalinkStandard.Ttnt) != 0)
+                return "TTNT";
+            if ((d1 & DatalinkStandard.Jsidls) != 0 && (d2 & DatalinkStandard.Jsidls) != 0)
+                return "JSIDLS";
+            if ((d1 & DatalinkStandard.Hn900) != 0 && (d2 & DatalinkStandard.Hn900) != 0)
+                return "HN-900";
+            if ((d1 & DatalinkStandard.RuFortTvm) != 0 && (d2 & DatalinkStandard.RuFortTvm) != 0)
+                return "Fort-TVM";
+            if ((d1 & DatalinkStandard.Tks2Apd518) != 0 && (d2 & DatalinkStandard.Tks2Apd518) != 0)
+                return "TKS-2 / APD-518";
+            if ((d1 & DatalinkStandard.Link16) != 0 && (d2 & DatalinkStandard.Link16) != 0)
+                return "Link 16";
+            if ((d1 & DatalinkStandard.Link11) != 0 && (d2 & DatalinkStandard.Link11) != 0)
+                return "Link 11";
+            if ((d1 & DatalinkStandard.RuNavalTactical) != 0 && (d2 & DatalinkStandard.RuNavalTactical) != 0)
+                return "RuNaval Tactical";
+
+            return "Link 16";
+        }
+
+        public static string GetHoverTelemetryTag(ObjectBase shooter, AmmunitionParameters ap, ObjectBase target)
+        {
+            if (shooter == null || ap == null || target == null || target.IsDestroyed)
+                return null;
+
+            var shooterProfile = GetPlatformProfile(shooter);
+            var missileProfile = GetMissileProfile(ap);
+
+            ObjectBase tracker = FindBestTrackingCooperator(shooter, target);
+            if (tracker == null)
+                return null;
+
+            var trackerProfile = GetPlatformProfile(tracker);
+            InteractionTier interaction = EvaluateInteraction(shooter, tracker);
+            string protocol = GetDatalinkProtocolDisplayName(shooterProfile.Datalinks, trackerProfile.Datalinks);
+
+            bool isSarh = ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming
+                          || missileProfile.GuidanceFamily == GuidanceFamily.SARH
+                          || missileProfile.GuidanceFamily == GuidanceFamily.TVM;
+
+            // Tier 1 Forward Pass (SARH, e.g. SM-2MR)
+            if (isSarh)
+            {
+                SensorSystemRadar illum = FindConsortIlluminatorForTarget(shooter, ap, target);
+                if (illum != null)
+                {
+                    string shipName = illum._baseObject?.getName() ?? "Consort";
+                    string radarName = illum._systemName ?? "CW";
+                    return $"<Run Foreground=\"#81C784\">Forward Pass: {shipName} [{radarName}]</Run><LineBreak/>";
+                }
+
+                return $"<Run Foreground=\"#FFF176\">Cued via {protocol} (Local radar lock required to fire)</Run><LineBreak/>";
+            }
+
+            // Tier 1 Blind OTH / EMCON (ARH, e.g. SM-6)
+            if (shooterProfile.CecTier == CecTier.Tier1 &&
+                trackerProfile.CecTier == CecTier.Tier1 &&
+                (interaction == InteractionTier.Tier1_FullCec || interaction == InteractionTier.SatcomGlobal || interaction == InteractionTier.Tier1_IntraFlightOnly) &&
+                missileProfile.AllowLaunchOnRemote)
+            {
+                string guiderName = tracker.getName();
+                return $"<Run Foreground=\"#4FC3F7\">CEC Track: {guiderName} [{protocol} | Tier 1]</Run><LineBreak/>";
+            }
+
+            // Tier 2 Cue Only
+            if (interaction == InteractionTier.Tier2_CueOnly ||
+                interaction == InteractionTier.Tier2_MidcourseRescue ||
+                shooterProfile.CecTier >= CecTier.Tier2 ||
+                missileProfile.CecTier >= CecTier.Tier2)
+            {
+                return $"<Run Foreground=\"#FFF176\">Cued via {protocol} (Local radar lock required to fire)</Run><LineBreak/>";
+            }
+
+            return null;
+        }
+
+        public static string FormatMissileDatalinkUiString(Missile m, SensorSystemRadar activeRadar, ObjectBase guider, ObjectBase launcher)
+        {
+            if (guider == null) return string.Empty;
+
+            string guiderName = Patches.DatalinkUiPatch.FormatCleanUnitName(guider);
+            var guiderProfile = GetPlatformProfile(guider);
+            var launcherProfile = launcher != null ? GetPlatformProfile(launcher) : PlatformProfile.DefaultTier3;
+            var mProfile = GetMissileProfile(m?._ap);
+
+            bool isAwacs = (guider is Aircraft || guider is Helicopter) && (activeRadar != null && IsAwacsRadar(activeRadar));
+            bool isRescue = m != null && (m.ConnectionLost.Value || (launcher != null && (launcher.IsDestroyed || IsPlatformInAirRadarEmcon(launcher))));
+
+            string protocol;
+            string tierStr;
+
+            if (isAwacs)
+            {
+                protocol = "NIFC-CA / USG-3";
+                tierStr = "Tier 1";
+            }
+            else if (guiderProfile.CecTier == CecTier.Tier1)
+            {
+                protocol = GetDatalinkProtocolDisplayName(launcherProfile.Datalinks, guiderProfile.Datalinks);
+                if (mProfile.GuidanceFamily == GuidanceFamily.SARH || mProfile.GuidanceFamily == GuidanceFamily.TVM)
+                    tierStr = "Tier 1 SARH";
+                else
+                    tierStr = "Tier 1";
+            }
+            else if (guiderProfile.CecTier == CecTier.Tier2)
+            {
+                string baseProto = GetDatalinkProtocolDisplayName(launcherProfile.Datalinks, guiderProfile.Datalinks);
+                protocol = isRescue ? $"{baseProto} Rescue" : baseProto;
+                tierStr = "Tier 2";
+            }
+            else
+            {
+                protocol = "Local FCR";
+                tierStr = "Tier 3";
+            }
+
+            int mapId = Patches.DatalinkUiPatch.GetUnitContactId(guider);
+            string idTag = mapId > 0 ? $"{mapId} " : "";
+            return $"{idTag}{guiderName} [{protocol} | {tierStr}]";
         }
     }
 }

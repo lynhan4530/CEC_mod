@@ -1,25 +1,109 @@
 using System;
+using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 using SeaPower;
+using SeapowerUI;
 using UnityEngine;
 
 namespace CecMod.Patches
 {
+    [HarmonyPatch]
+    internal static class AttackingStateUpdateDisplayedRangePatch
+    {
+        private static PropertyInfo _sourceProp;
+        private static PropertyInfo _ammunitionProp;
+        private static int _lastLoggedTargetId = -1;
+
+        [HarmonyTargetMethods]
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            Type t = AccessTools.TypeByName("SeapowerUI.ViewModels.AttackingState");
+            if (t != null)
+            {
+                _sourceProp = AccessTools.Property(t, "Source");
+                _ammunitionProp = AccessTools.Property(t, "Ammunition");
+
+                MethodInfo m = AccessTools.Method(t, "UpdateDisplayedRange", new Type[] { typeof(object), typeof(Ammunition) });
+                if (m != null) yield return m;
+            }
+        }
+
+        [HarmonyPostfix]
+        private static void Postfix(object __instance, object v, Ammunition ammo)
+        {
+            try
+            {
+                if (__instance == null || !(v is MapUnitViewModel muvm) || muvm.Unit == null)
+                    return;
+
+                ObjectBase shooter = _sourceProp?.GetValue(__instance) as ObjectBase;
+                ObjectBase target = muvm.Unit.BaseObject;
+                if (shooter == null || target == null || shooter == target)
+                    return;
+
+                Ammunition effectiveAmmo = ammo;
+                if (effectiveAmmo?._ap == null && _ammunitionProp != null)
+                {
+                    string ammoName = _ammunitionProp.GetValue(__instance) as string;
+                    if (!string.IsNullOrEmpty(ammoName))
+                        effectiveAmmo = shooter.getAmmunitionByName(ammoName);
+                }
+
+                if (effectiveAmmo?._ap == null)
+                    return;
+
+                bool localSight = CecCapability.HasLocalRadarSight(shooter, target);
+                if (localSight)
+                    return;
+
+                string tag = CecCapability.GetHoverTelemetryTag(shooter, effectiveAmmo._ap, target);
+                if (string.IsNullOrEmpty(tag))
+                    return;
+
+                if (target.UniqueID != _lastLoggedTargetId)
+                {
+                    _lastLoggedTargetId = target.UniqueID;
+                    string cleanTag = tag.Replace("<LineBreak/>", " ")
+                        .Replace("<Run Foreground=\"#FF00FF00\">", "[")
+                        .Replace("<Run Foreground=\"#FFFFFF00\">", "[")
+                        .Replace("<Run Foreground=\"#FF00FFFF\">", "[")
+                        .Replace("</Run>", "]");
+                    CecDebugOverlay.LogToDm($"[CEC Target Hover] Shooter: {shooter.FullIDData()} -> Target: {target.FullIDData()} | LocalSight: {localSight} | Telemetry: {cleanTag}", "lime");
+                }
+
+                string current = muvm.ContactMouseoverInfo;
+                if (string.IsNullOrEmpty(current))
+                {
+                    muvm.ContactMouseoverInfo = tag.EndsWith("<LineBreak/>", StringComparison.Ordinal)
+                        ? tag.Substring(0, tag.Length - "<LineBreak/>".Length)
+                        : tag;
+                }
+                else if (!current.Contains(tag))
+                {
+                    muvm.ContactMouseoverInfo = tag + current;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] AttackingStateUpdateDisplayedRangePatch exception: {ex}");
+            }
+        }
+    }
+
     /// <summary>
     /// Enables real-world CEC / NIFC-CA / APAR / Russian / PLAN cooperative engagement capabilities:
     /// <list type="bullet">
     ///   <item>
     ///     <b>Synthetic Datalink Compatibility (<see cref="SensorSystem.CanGuideAmmo"/>):</b>
     ///     Allows compatible AWACS / ship search radars to provide mid-course datalink updates to
-    ///     ARH + MidCourseCorrection missiles (SM-6, SM-2 Blk IIIC, ESSM Blk 2, Aster 15/30, CAMM,
-    ///     40N6, 9M96, HHQ-9B, AIM-120D/AIM-260/AIM-174B, Meteor, R-37M, PL-15) and enforces
-    ///     doctrinal SARH illuminator matching when Euromod's <c>ExtendedGuidance.dll</c> is disabled.
+    ///     ARH + MidCourseCorrection missiles and enforces doctrinal SARH illuminator matching.
     ///   </item>
     ///   <item>
     ///     <b>Engage-on-Remote / Launch-on-Remote (OTH &amp; EMCON):</b>
-    ///     Allows a CEC-capable ship or aircraft whose local radar is horizon-blocked or in EMCON
-    ///     to pass pre-launch vision and FCR range gates when a friendly CEC consort or AWACS in the
-    ///     same doctrinal network is actively tracking the target on radar and has a compatible FCR/datalink.
+    ///     Gates pre-launch vision and FCR range gates behind <see cref="CecCapability.CanPerformLaunchOnRemote"/>
+    ///     so Tier 1 ARH missiles and Forward Pass SARH engagements succeed while Tier 2 Cue Only contacts
+    ///     require local radar lock to leave the rail.
     ///   </item>
     /// </list>
     /// </summary>
@@ -28,8 +112,6 @@ namespace CecMod.Patches
     {
         /// <summary>
         /// Filters <see cref="SensorSystem.CanGuideAmmo"/> through <see cref="CecCapability.CanSensorGuideAmmo"/>.
-        /// Note: <see cref="SensorSystemRadar"/> inherits <c>CanGuideAmmo</c> from <see cref="SensorSystem"/>
-        /// without overriding it.
         /// </summary>
         [HarmonyPatch(typeof(SensorSystem), nameof(SensorSystem.CanGuideAmmo))]
         [HarmonyPostfix]
@@ -51,8 +133,8 @@ namespace CecMod.Patches
         /// <summary>
         /// When a CEC-capable platform checks <c>ObjectBase.GetLocalAirTargetVisibilityRange</c>
         /// (with <c>excludeRadars == false</c>) and its own local sensors cannot reach the air target
-        /// (due to OTH radar horizon or EMCON), allow a cooperative radar track from an allied
-        /// CEC ship or AWACS in the same network to satisfy the air-target visibility gate.
+        /// (due to OTH radar horizon or EMCON), allow a cooperative radar track to satisfy visibility
+        /// if the platform qualifies for Launch-on-Remote.
         /// </summary>
         [HarmonyPatch(typeof(ObjectBase), "GetLocalAirTargetVisibilityRange")]
         [HarmonyPostfix]
@@ -75,7 +157,7 @@ namespace CecMod.Patches
                 if (__result >= distToTarget)
                     return;
 
-                if (CecCapability.HasCooperativeAirTrack(__instance, targetObject, options))
+                if (CecCapability.CanPerformLaunchOnRemote(__instance, null, targetObject))
                 {
                     __result = distToTarget + 50f;
                 }
@@ -90,16 +172,12 @@ namespace CecMod.Patches
         /// Extends <see cref="ObjectBase.GetMaxRangeForFCR"/> for two critical CEC cases:
         /// <list type="number">
         ///   <item>
-        ///     When a consort or AWACS is guiding a missile it does not carry in its own magazine
-        ///     (so <c>GetWeaponSystemsForAmmunition(ammo)</c> is empty on that platform), evaluate
-        ///     the platform's own <c>_obp._sensorSystems</c> directly so <see cref="Missile.CheckRadioConnection"/>
-        ///     accurately checks the guiding unit's FCR range and radar horizon.
+        ///     When a consort or AWACS is guiding a missile it does not carry in its own magazine,
+        ///     evaluate the platform's own sensors directly.
         ///   </item>
         ///   <item>
-        ///     When a firing platform is checking pre-launch FCR range (<c>!HandoffPatch.IsCheckingRadioConnection</c>)
-        ///     and its local FCRs are horizon-limited (<c>GetAmmunitionHorizons</c>) or in EMCON, check
-        ///     <see cref="CecCapability.HasRemoteFcrCoverage"/> for a remote CEC ship or AWACS that can
-        ///     guide the ammo and has radar LOS to the target.
+        ///     When a firing platform is checking pre-launch FCR range and its local FCRs are horizon-limited
+        ///     or in EMCON, check <see cref="CecCapability.CanPerformLaunchOnRemote"/>.
         ///   </item>
         /// </list>
         /// </summary>
@@ -126,7 +204,7 @@ namespace CecMod.Patches
                     return;
 
                 // Case 1: Direct sensor evaluation on __instance when __instance doesn't carry 'ammo'
-                // in its own weapon systems (e.g., an E-2D Hawkeye or consort ship guiding another unit's missile).
+                // in its own weapon systems (e.g. an E-2D Hawkeye or consort ship guiding another unit's missile).
                 if (__result.Range <= 0f && __instance._obp?._sensorSystems != null)
                 {
                     float bestDirectRange = 0f;
@@ -171,7 +249,7 @@ namespace CecMod.Patches
                         targetObject.transform.position);
 
                     if (__result.Range < distToTarget
-                        && CecCapability.HasRemoteFcrCoverage(__instance, ap, targetObject))
+                        && CecCapability.CanPerformLaunchOnRemote(__instance, ap, targetObject))
                     {
                         float maxAllowed = maxRangeOverride > 0f ? maxRangeOverride : ap._launchRangesInUnity.y;
                         __result.Range = Mathf.Min(maxAllowed, distToTarget + 50f);
@@ -186,11 +264,8 @@ namespace CecMod.Patches
         }
 
         /// <summary>
-        /// When <c>OptionsManager.Instance.RequireVisionToEngage == VisionToEngageMode.AssociatedSensors</c>,
-        /// <c>EvaluateLimitingSensor</c> inside <see cref="ObjectBase.GetSensorRange"/> clamps
-        /// <c>SensorData.Distance</c> to the firing platform's local <c>_associatedSearchSensors</c>,
-        /// which is 0 in EMCON or mast-horizon-limited for OTH targets. When a remote CEC/AWACS unit
-        /// provides FCR/datalink coverage, lift that clamp so OTH/EMCON launches succeed.
+        /// Lifts local mast horizon clamps in <see cref="ObjectBase.GetSensorRange"/> when
+        /// <see cref="CecCapability.CanPerformLaunchOnRemote"/> succeeds.
         /// </summary>
         [HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.GetSensorRange))]
         [HarmonyPostfix]
@@ -228,7 +303,7 @@ namespace CecMod.Patches
                 if (__result.SensorData.Distance >= distToTarget)
                     return;
 
-                if (CecCapability.HasRemoteFcrCoverage(__instance, ap, targetObject))
+                if (CecCapability.CanPerformLaunchOnRemote(__instance, ap, targetObject))
                 {
                     float cooperativeRange = Mathf.Min(ap._launchRangesInUnity.y, distToTarget + 50f);
                     if (cooperativeRange > __result.SensorData.Distance)
@@ -253,8 +328,7 @@ namespace CecMod.Patches
 
         /// <summary>
         /// Allows <see cref="WeaponSystem.IsVisionRequirementMet"/> to succeed for air targets
-        /// when the firing platform is in EMCON or OTH and a cooperative CEC/AWACS radar in the
-        /// same network has a live radar track on the target.
+        /// during Launch-on-Remote cooperative engagements.
         /// </summary>
         [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.IsVisionRequirementMet))]
         [HarmonyPostfix]
@@ -273,7 +347,8 @@ namespace CecMod.Patches
                 if (!targetObject.isAirTarget())
                     return;
 
-                if (CecCapability.HasCooperativeAirTrack(__instance._baseObject, targetObject, options))
+                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                if (CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, targetObject))
                 {
                     __result = true;
                     guidanceSystemPenalty = 0f;
@@ -287,8 +362,7 @@ namespace CecMod.Patches
 
         /// <summary>
         /// Allows <see cref="WeaponSystem.CanSearchSensorsSeeTarget"/> to succeed for air targets
-        /// during OTH or EMCON cooperative engagements, including when <c>ExtendedGuidance</c>
-        /// (<c>Hooks.LauncherSearchVision</c> / <c>FcrAcquisitionAdapter</c>) overrides vanilla search checks.
+        /// during Launch-on-Remote cooperative engagements.
         /// </summary>
         [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.CanSearchSensorsSeeTarget))]
         [HarmonyPostfix]
@@ -307,7 +381,8 @@ namespace CecMod.Patches
                 if (!targetObject.isAirTarget())
                     return;
 
-                if (CecCapability.HasCooperativeAirTrack(__instance._baseObject, targetObject, options))
+                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                if (CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, targetObject))
                 {
                     __result = true;
                     guidanceSystemPenalty = 0f;
@@ -321,8 +396,7 @@ namespace CecMod.Patches
 
         /// <summary>
         /// Lifts <see cref="WeaponSystem.FCRDetectionRange"/> during pre-launch OTH / EMCON checks
-        /// (including when <c>ExtendedGuidance.Hooks.FcrRange</c> skips vanilla) when a remote CEC
-        /// ship or AWACS provides compatible FCR / mid-course datalink coverage on the target.
+        /// when <see cref="CecCapability.CanPerformLaunchOnRemote"/> succeeds.
         /// </summary>
         [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.FCRDetectionRange))]
         [HarmonyPostfix]
@@ -357,7 +431,7 @@ namespace CecMod.Patches
                     targetObject.transform.position);
 
                 if (__result < distToTarget
-                    && CecCapability.HasRemoteFcrCoverage(__instance._baseObject, ap, targetObject))
+                    && CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, targetObject))
                 {
                     __result = Mathf.Min(ap._launchRangesInUnity.y, distToTarget + 50f);
                     issue = null;

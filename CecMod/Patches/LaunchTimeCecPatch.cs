@@ -86,7 +86,7 @@ namespace CecMod.Patches
                 CecCapability.SyncConsortIlluminatorsToAmmo(__instance, ap);
                 if (ap != null
                     && CecCapability.IsPlatformInAirRadarEmcon(self)
-                    && CecCapability.HasRemoteFcrCoverage(self, ap, targetObject))
+                    && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
                 {
                     var offLocalRadars = new List<SensorSystemRadar>();
                     foreach (SensorSystem s in __instance._vwp._associatedSensors)
@@ -124,10 +124,10 @@ namespace CecMod.Patches
                 ObjectBase self = __instance._baseObject;
                 AmmunitionParameters ap = __instance._ammoForEngage?._ap;
 
-                if (self != null && ap != null && CecCapability.HasRemoteFcrCoverage(self, ap, targetObject))
+                if (self != null && ap != null && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
                 {
                     // Do not clamp _currentMaxLaunchRange to the firing ship's local radar horizon
-                    // when a remote CEC/AWACS unit has radar LOS to the target.
+                    // when remote CEC/AWACS or Mountain Top Forward Pass coverage is valid.
                     HorizonRangeRef(__instance) = 0f;
                 }
 
@@ -185,7 +185,7 @@ namespace CecMod.Patches
                 if (!__result
                     && ap != null
                     && __instance._baseObject != null
-                    && CecCapability.HasRemoteFcrCoverage(__instance._baseObject, ap, __instance._targetObject))
+                    && CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, __instance._targetObject))
                 {
                     __result = true;
                 }
@@ -220,6 +220,10 @@ namespace CecMod.Patches
 
                 ObjectBase target = m.CurrentIntendedTargetObject;
                 if (target == null || m._ap == null || m._weaponSystem?._vwp?._associatedSensors == null)
+                    return;
+
+                var mProfile = CecCapability.GetMissileProfile(m._ap);
+                if (mProfile.CecTier == CecTier.Tier3 || mProfile.CecTier == CecTier.Tier0)
                     return;
 
                 CecCapability.SyncConsortIlluminatorsToAmmo(m._weaponSystem, m._ap);
@@ -264,7 +268,7 @@ namespace CecMod.Patches
                 {
                     if (!(s is SensorSystemRadar candidate) || candidate == current)
                         continue;
-                    if (!candidate.IsOn.Value || candidate.IsDestroyed || candidate.Inoperable.Value)
+                    if (!CecCapability.CanRadarGuideWeapon(candidate))
                         continue;
                     if (!candidate.CanGuideAmmo(m._ap))
                         continue;
@@ -309,7 +313,10 @@ namespace CecMod.Patches
                 bestRemote._isGuiding = true;
                 bestRemote._restPositionReached = false;
                 bestRemote._preLaunchTargetObject = null;
+                bestRemote.setTargetObject(target);
                 m._seeker?.setGuidingSystem(bestRemote);
+                m._seeker?.setCurrentTarget(target);
+                EgBridge.SetActiveEgIlluminator(m, bestRemote);
                 m.ConnectionLost.Value = false;
                 m.ConnectionLostForever.Value = false;
 

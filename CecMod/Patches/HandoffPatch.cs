@@ -145,7 +145,12 @@ namespace CecMod.Patches
             {
                 var entry = _fixedUpdateAliases[i];
                 if (entry.Missile != null)
-                    entry.Missile._launchPlatform = entry.OriginalLauncher;
+                {
+                    if (entry.OriginalLauncher != null && !entry.OriginalLauncher.IsDestroyed)
+                        entry.Missile._launchPlatform = entry.OriginalLauncher;
+                    else if (entry.Missile._guidingRadarSystem?._baseObject != null && !entry.Missile._guidingRadarSystem._baseObject.IsDestroyed)
+                        entry.Missile._launchPlatform = entry.Missile._guidingRadarSystem._baseObject;
+                }
             }
             _fixedUpdateAliases.Clear();
             IsCheckingRadioConnection = false;
@@ -181,7 +186,12 @@ namespace CecMod.Patches
         private static void OnUpdateEveryFrame_Postfix(Missile __instance, ObjectBase __state)
         {
             if (__instance != null)
-                __instance._launchPlatform = __state;
+            {
+                if (__state != null && !__state.IsDestroyed)
+                    __instance._launchPlatform = __state;
+                else if (__instance._guidingRadarSystem?._baseObject != null && !__instance._guidingRadarSystem._baseObject.IsDestroyed)
+                    __instance._launchPlatform = __instance._guidingRadarSystem._baseObject;
+            }
             IsCheckingRadioConnection = false;
 
             try
@@ -204,17 +214,28 @@ namespace CecMod.Patches
                     return;
 
                 SensorSystemRadar currentRadar = __instance._guidingRadarSystem;
+                ObjectBase launcher = __instance._launchPlatform;
                 bool currentRadarDead = currentRadar == null
                                         || currentRadar.IsDestroyed
                                         || currentRadar.Inoperable.Value
                                         || !currentRadar.IsOn.Value
                                         || currentRadar._baseObject == null
-                                        || currentRadar._baseObject.IsDestroyed;
+                                        || currentRadar._baseObject.IsDestroyed
+                                        || (currentRadar._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(currentRadar._baseObject));
+
+                bool launcherDead = launcher == null || launcher.IsDestroyed || CecCapability.IsPlatformInAirRadarEmcon(launcher);
+                bool launcherBlind = !launcherDead && !CecCapability.HasLocalRadarSight(launcher, target);
+                bool egStale = EgBridge.IsActive && EgBridge.IsDatalinkStaleOrLost(__instance);
 
                 // Under ExtendedGuidance, a SARH+Datalink missile flying mid-course on an operational
-                // DatalinkCarrier (eu_AEGIS_BL9, SYR-1, etc.) before terminal illumination is due is healthy.
-                if (!currentRadarDead && EgBridge.IsWaitingForTerminalIllumination(__instance))
+                // DatalinkCarrier (eu_AEGIS_BL9, SYR-1, etc.) before terminal illumination is due is healthy
+                // only if the link is not stale/lost and the launcher is still alive and tracking.
+                if (!currentRadarDead && !launcherDead && !launcherBlind && !egStale && EgBridge.IsWaitingForTerminalIllumination(__instance))
                     return;
+
+                bool isTerminalWindow = EgBridge.IsActive
+                    ? EgBridge.IsTerminalIlluminationDue(__instance)
+                    : (__instance.getFlightStage() == WeaponBase.FlightStage.TerminalApproach);
 
                 // Under ExtendedGuidance, when terminal SARH illumination IS due on a DatalinkCarrier,
                 // check if ExtendedGuidance already reserved an illuminator or own-ship can illuminate;
@@ -224,13 +245,16 @@ namespace CecMod.Patches
                                               && !currentRadarDead
                                               && !__instance.ConnectionLost.Value
                                               && EgBridge.IsDatalinkCarrier(currentRadar)
-                                              && EgBridge.IsTerminalIlluminationDue(__instance)
+                                              && isTerminalWindow
                                               && EgBridge.GetActiveEgIlluminator(__instance) == null
                                               && !HasOwnShipIlluminatorForTarget(__instance, target);
 
                 bool linkBroken = __instance.ConnectionLost.Value
                                   || __instance.ConnectionLostForever.Value
-                                  || currentRadarDead;
+                                  || currentRadarDead
+                                  || launcherDead
+                                  || launcherBlind
+                                  || egStale;
 
                 if (!linkBroken && !needsTerminalPromotion)
                     return;
@@ -248,19 +272,28 @@ namespace CecMod.Patches
                     _lastAttemptByMissile.Clear();
                 }
 
+                bool requireIllum = needsTerminalPromotion || (isSarh && isTerminalWindow);
                 SensorSystemRadar newRadar = CecCapability.FindHandoffRadar(
                     __instance,
-                    requireTerminalIlluminator: needsTerminalPromotion);
+                    requireTerminalIlluminator: requireIllum);
                 if (newRadar == null)
                     return;
 
                 if (!newRadar.IsOn.Value)
+                {
                     newRadar.Enable(allowMessage: false, turnOffAfterEngage: true);
+                    newRadar.IsOn.Value = true;
+                }
 
-                if (!newRadar.IsAimedAtTarget(target) && !newRadar.TryToAddTarget(target))
-                    return;
-                if (!newRadar.IsGuidingWeapon(__instance) && !newRadar.TryToAddWeapon(__instance))
-                    return;
+                if (!newRadar._associatedTargets.Contains(target))
+                {
+                    newRadar.setTargetObject(target);
+                    newRadar._associatedTargets.Add(target);
+                }
+                if (!newRadar._associatedWeapons.Contains(__instance))
+                {
+                    newRadar._associatedWeapons.Add(__instance);
+                }
 
                 string oldOwner = currentRadar?._baseObject?.getName() ?? "<none>";
                 string oldRadarName = currentRadar?._systemName ?? "<none>";
@@ -274,13 +307,22 @@ namespace CecMod.Patches
                 newRadar._isGuiding = true;
                 newRadar._restPositionReached = false;
                 newRadar._preLaunchTargetObject = null;
+                newRadar.setTargetObject(target);
                 __instance._seeker?.setGuidingSystem(newRadar);
+                __instance._seeker?.setCurrentTarget(target);
+
+                EgBridge.SetActiveEgIlluminator(__instance, newRadar);
 
                 __instance.ConnectionLost.Value = false;
                 __instance.ConnectionLostForever.Value = false;
                 __instance._lostGuidanceTime = now;
 
-                string reasonTag = needsTerminalPromotion ? "Terminal-Illum Handoff" : "Handoff";
+                if (launcher == null || launcher.IsDestroyed)
+                {
+                    __instance._launchPlatform = newRadar._baseObject;
+                }
+
+                string reasonTag = requireIllum ? "Terminal-Illum Handoff" : "Handoff";
                 CecPlugin.Log.LogInfo(
                     $"[CEC] {reasonTag}: missile '{__instance.getObjectIniName()}' (#{id}) re-linked from " +
                     $"'{oldOwner}' ({oldRadarName}) -> '{newRadar._baseObject.getName()}' ({newRadar._systemName}).");
