@@ -1,0 +1,5 @@
+Tier,Tier Name,Remote Launch? (LaunchOnRemote),Mid-Course Handoff? (DatalinkRescue),Minimum Radar Required,Typical Seeker / Weapon
+Tier 1,Full CEC / NIFC-CA,YES (blind fire on remote track),YES (third-party full handoff),"Tier 1 MFR / AESA (SPY-1, APAR, Type 346, APY-9)","ARH (SM-6, AIM-120D, PL-15)"
+Tier 2,Mid-Course Cooperative,NO (shooter needs local lock),YES (consort can rescue track),"Tier 2 3D Volume Search (SPS-48/49, Top Pair)","ARH / SARH+DL (SM-2, R-77, PL-12)"
+Tier 3,Local Guidance Only,NO,NO (missile lost if lock drops),"Tier 3 Dedicated FCR / CW (STIR, Front Door, Pop Group)","Legacy SARH / Beam-Rider (AIM-7, SA-N-4)"
+Tier 0,Standalone,NO,NO,Tier 0 Nav / None,"IR / Unguided (AIM-9, Guns)"

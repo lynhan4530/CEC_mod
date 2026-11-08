@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SeaPowerCooperativeRelay</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <TargetFramework>net40</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>11.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup>
+    <RootNamespace />
+  </PropertyGroup>
+  <ItemGroup>
+    <None Remove="SeaPowerCooperativeRelay.GuidancePanel.xaml" />
+    <EmbeddedResource Include="SeaPowerCooperativeRelay.GuidancePanel.xaml" LogicalName="SeaPowerCooperativeRelay.GuidancePanel.xaml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="AnchorChain" />
+    <Reference Include="0Harmony" />
+    <Reference Include="Seapower-Scripts" />
+    <Reference Include="System.Core" />
+    <Reference Include="Unity.Entities" />
+    <Reference Include="UnityEngine.CoreModule" />
+    <Reference Include="Noesis.NoesisGUI" />
+    <Reference Include="UniRx" />
+  </ItemGroup>
+</Project>

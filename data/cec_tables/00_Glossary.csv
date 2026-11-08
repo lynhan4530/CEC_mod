@@ -1,0 +1,60 @@
+Acronym,Full Term,Definition / Context in Mod
+CEC,Cooperative Engagement Capability,A real-time sensor network integrating radar track data across diverse platforms into a single composite fire-control track.
+NIFC-CA,Naval Integrated Fire Control-Counter Air,"US Navy battle network linking sensors (E-2D, F-35) and shooters (Aegis ships) for over-the-horizon air defense."
+IFDL,Intra-Flight Data Link,"Directional, low-probability-of-intercept/detection (LPI/LPD) datalink used exclusively among F-22 Raptors for flight-level data sharing."
+MADL,Multifunction Advanced Data Link,Stealthy directional Ku-band AESA datalink used among F-35 Lightning II aircraft and compatible gateways.
+Link 16,Tactical Data Network (TADIL-J),Standard NATO military tactical data exchange network operating in UHF (960-1215 MHz) using JTIDS/MIDS terminals.
+Link 11,Tactical Data Network (TADIL-A),Legacy NATO HF/UHF secure digital radio link for maritime situational awareness.
+JSIDLS,Joint Service Integrated Data Link System,"Modern PLA/PLAN joint tactical datalink standard connecting ships, aircraft, and command nodes."
+HN-900,Hua-Niao 900 Tactical Datalink,Chinese naval tactical datalink equivalent to Link 11/Link 16 used by PLAN surface combatants.
+TTNT,Tactical Targeting Network Technology,"High-throughput, low-latency IP-based airborne networking waveform for rapid targeting handoffs."
+TADIL,Tactical Digital Information Link,"Joint US military nomenclature for tactical data links (e.g., Link 11 is TADIL-A, Link 16 is TADIL-J)."
+MIDS,Multifunctional Information Distribution System,"Advanced, miniaturized Link 16 terminal architecture (e.g., MIDS-LVT, MIDS JTRS)."
+JTIDS,Joint Tactical Information Distribution System,First-generation hardware terminal standard that implements the Link 16 protocol.
+SADL,Situational Awareness Data Link,Air-to-ground and air-to-air datalink adapted from EPLRS used on USAF A-10 and F-16 fighters.
+TKS-2 / TKS-2M,Telematicheskiy Kompleks Svyazi,Russian tactical command and intra-flight inter-aircraft datalink system for Sukhoi fighters and MiG-31.
+APD-518,Avtomatizirovannyy Peredatchik Dannykh,Soviet/Russian automated digital tactical datalink used by MiG-31 flights for consort track sharing and radar zone division.
+RK-RLDN,Radiolokatsionnyy Kompleks Dal'nego Navedeniya,Russian radar datalink and automated command-vectoring network.
+AESA,Active Electronically Scanned Array,Phased-array radar whose transmitter/receiver functions are composed of numerous small solid-state transmit/receive modules.
+PESA,Passive Electronically Scanned Array,"Phased-array radar using a central radio-frequency source and electronically controlled phase shifters (e.g., Zaslon, SPY-1)."
+MFR,Multifunction Radar,"Single radar system capable of surveillance, 3D volume search, tracking, and missile guidance/uplink simultaneously (e.g., APAR, SPY-1, Type 346)."
+FCR,Fire Control Radar,Specialized radar dedicated to tracking targets and providing targeting/illumination data to weapon systems.
+AWACS,Airborne Warning and Control System,Airborne platform and radar suite providing long-range air/surface surveillance and tactical battle control.
+AEW&C,Airborne Early Warning and Control,Airborne early warning aircraft configured for radar picket surveillance and fighter interception control.
+CW,Continuous Wave,"Radar transmission of a continuous radio wave without pulses, commonly used for semi-active radar homing target illumination."
+LPI / LPD,Low Probability of Intercept / Low Probability of Detection,Radar/communication techniques designed to conceal transmissions from enemy electronic support measures (ESM).
+EMCON,Emission Control,Operational state restricting the transmission of electromagnetic radiation (radars/radios) to prevent electronic detection.
+OTH,Over-The-Horizon,Targeting or radar detection capabilities extending beyond the optical and direct line-of-sight radar horizon.
+AAM,Air-to-Air Missile,Missile launched from an airborne platform to intercept aerial targets.
+SAM,Surface-to-Air Missile,Missile launched from a ship or ground station against airborne targets.
+ASM / AGM,Air-to-Surface Missile,Guided missile launched from an aircraft against surface/land/sea targets.
+ASuW,Anti-Surface Warfare,Naval combat operations directed against enemy surface ships and vessels.
+AAW,Anti-Air Warfare,Naval and aerial defense operations directed against incoming aircraft and anti-ship missiles.
+ASW,Anti-Submarine Warfare,"Naval operations aimed at detecting, tracking, and neutralizing submarines."
+ARH,Active Radar Homing,"Missile guidance method where the missile carries its own radar transceiver to track the target in terminal phase (e.g., AIM-120, SM-6, PL-15)."
+SARH,Semi-Active Radar Homing,"Missile guidance method where the missile homes in on radar reflections provided by an external illuminator (e.g., RIM-66, AIM-7, R-27R)."
+TVM,Track-Via-Missile,"Hybrid guidance system where missile receives radar reflections and relays tracking data down to the parent radar to calculate intercept commands (e.g., Patriot, Fort S-300F)."
+IR / IIR,Infrared / Imaging Infrared,Passive terminal homing detecting thermal signatures emitted by the target engine/airframe.
+DL,Datalink,Mid-course communication link sending course correction updates from launching platform/consort to the missile in flight.
+BB,Battleship,"Heavily armored, large-displacement capital surface combatant with heavy caliber guns."
+CG / CGN,Guided Missile Cruiser / Nuclear-Powered Cruiser,Large multi-mission surface combatant equipped with long-range SAM/SSM systems and area air defense.
+DDG,Guided Missile Destroyer,"Fast, maneuverable warship equipped for multi-mission warfare (AAW, ASW, ASuW) and guided missile defense."
+FFG,Guided Missile Frigate,"Medium-displacement escort combatant specialized in escort, ASW, and localized air defense."
+FSG / FS,Corvette / Guided Missile Corvette,"Small surface combatant for coastal defense, patrol, and rapid strike."
+CVN / CV,Aircraft Carrier / Nuclear-Powered Aircraft Carrier,Capital ship designed with a flight deck to deploy naval aviation.
+LHA / LHD,Amphibious Assault Ship,"Large amphibious platform with full flight deck and well deck for rotorcraft, V/STOL, and landing craft."
+TARKR,Heavy Nuclear-Powered Guided Missile Cruiser,"Soviet/Russian designation (Tyazhyoly Atomny Raketny Kreyser, e.g., Kirov Prj. 1144)."
+RKR,Guided Missile Cruiser,"Soviet/Russian designation (Raketny Kreyser, e.g., Slava Prj. 1164)."
+TAVKR,Heavy Aircraft-Carrying Cruiser,"Soviet designation (Tyazhyoly Avianesushchy Kreyser, e.g., Kiev, Kuznetsov)."
+BPK,Large Anti-Submarine Ship,"Soviet designation (Bolshoy Protivolodochny Korabl, e.g., Udaloy, Kresta II)."
+SKR,Patrol / Escort Ship,"Soviet designation (Storozhevoy Korabl, roughly equivalent to a Frigate, e.g., Krivak, Neustrashimy)."
+MRK,Small Guided Missile Ship,"Soviet/Russian designation (Maly Raketny Korabl, roughly equivalent to a missile corvette, e.g., Nanuchka)."
+RKA,Missile Boat / Fast Attack Craft,"Soviet/Russian designation (Raketny Kater, e.g., Osa, Tarantul)."
+VMF,Voyenno-Morskoy Flot,The Russian / Soviet Navy.
+VKS / VVS,Vozdushno-Kosmicheskiye Sily / Voyenno-Vozdushnye Sily,The Russian / Soviet Air and Aerospace Forces.
+USN,United States Navy,The maritime service branch of the United States Armed Forces.
+USAF,United States Air Force,The aerial warfare branch of the United States Armed Forces.
+PLAN,People's Liberation Army Navy,The naval warfare service branch of China's armed forces.
+PLAAF,People's Liberation Army Air Force,The aerial warfare service branch of China's armed forces.
+P2027,Project 2027 (Mod),High-tier modern naval warfare community mod / content pack for Sea Power.
+INI,Initialization Configuration File,"Game data files storing platform, weapon, and sensor definitions in the Sea Power engine."

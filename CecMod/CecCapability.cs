@@ -84,7 +84,7 @@ namespace CecMod
             "eu_tacticalpcgen1", "eu_tacticalpcgen2", "eu_tacticalpcgen3",
             "eu_JUWL", "eu_aster_datalink",
             "eu_EMPAR_2", "eu_KRONOS_guidance", "eu_MFRA_guidance", "eu_SAMPSON_guidance", "EMPAR_2",
-            "spa_SCOMBA_v1", "DD115_TacticalDatalink", "Mk92_Mod12_MCG",
+            "spa_SCOMBA_v1", "DD115_TacticalDatalink", "Mk92_Mod12_MCG", "LJG-318",
             "Link-16_Receiver", "eu_GPS_Receiver", "F16_GPS_Link", "IAF_GPS_Link", "GPS_Link", "WZ-8_Datalink"
         };
 
@@ -96,7 +96,7 @@ namespace CecMod
             "MK-95", "MK-115", "MK92_FCS", "MK92_Mod6_FCS", "MK92_Mod12_FCS",
             "eu_CEROS-200_CWI", "dk_iver_CEROS-200_CWI",
             "eu_stir120", "eu_stir180", "eu_stir240", "Stir", "STIR-180", "STIR-240",
-            "Front_Dome", "rfn_mr90", "LJG-316"
+            "Front_Dome", "rfn_mr90", "rfn_3r90m", "LJG-316"
         };
 
         // =========================================================================================
@@ -124,6 +124,7 @@ namespace CecMod
             // Soviet / Russian AEW&C (A-50 Shmel, A-50U Shmel-M, Ka-31 E-801E Oko)
             { "N035_Shmel", CecNetwork.RuJoint },
             { "N035M_Shmel-M", CecNetwork.RuJoint },
+            { "Shmel-M", CecNetwork.RuJoint },
             { "E-801E", CecNetwork.RuNaval | CecNetwork.PlanNaval },
 
             // PLA / PLAN AEW&C (KJ-500, KJ-600, KJ-2000, KJ-3000, Z-18J)
@@ -131,6 +132,7 @@ namespace CecMod
             { "KLC-600", CecNetwork.PlaJoint },
             { "KLC-600_low-band_mode", CecNetwork.PlaJoint },
             { "KJ3000_Aircraft_Radar", CecNetwork.PlaJoint },
+            { "KJ-3000 AESA", CecNetwork.PlaJoint },
             { "KLC-4", CecNetwork.PlaJoint },
             { "Z18_AEW_Radar", CecNetwork.PlaJoint }
         };
@@ -174,16 +176,20 @@ namespace CecMod
             { "eu_OPY-1", SarhIllumFamily.UsNatoXBandCw },
             { "FFM_Multifunction_Radar_Proxy", SarhIllumFamily.UsNatoXBandCw },
 
-            // Soviet / Russian S-300F/FM Fort / Rif (5V55RM, 48N6 series)
+            // Soviet / Russian S-300F/FM Fort / Rif & S-300/S-400 (5V55RM, 48N6 series)
             { "Top_Dome", SarhIllumFamily.RuFortTvm },
+            { "Top Dome", SarhIllumFamily.RuFortTvm },
             { "30N6E1_FCR", SarhIllumFamily.RuFortTvm },
             { "30N6E2", SarhIllumFamily.RuFortTvm },
             { "rfn_30n6e2", SarhIllumFamily.RuFortTvm },
             { "rfn_92n6e", SarhIllumFamily.RuFortTvm },
+            { "Big_Bird", SarhIllumFamily.RuFortTvm },
+            { "91N6E", SarhIllumFamily.RuFortTvm },
 
-            // Soviet / Russian Uragan / Shtil-1 (9M38, 9M317)
+            // Soviet / Russian Uragan / Shtil-1 (9M38, 9M317, 9M317M)
             { "Front_Dome", SarhIllumFamily.RuShtilCw },
             { "rfn_mr90", SarhIllumFamily.RuShtilCw },
+            { "rfn_3r90m", SarhIllumFamily.RuShtilCw },
 
             // PLAN HHQ-9 / HQ-9 (Type 346 / LJG-346 series)
             { "LJG-346", SarhIllumFamily.PlanHhq9 },
@@ -191,6 +197,11 @@ namespace CecMod
             { "LJG-346B", SarhIllumFamily.PlanHhq9 },
             { "LJQ-346B", SarhIllumFamily.PlanHhq9 },
             { "Type_346", SarhIllumFamily.PlanHhq9 },
+            { "Type_346A", SarhIllumFamily.PlanHhq9 },
+            { "Type_346B", SarhIllumFamily.PlanHhq9 },
+            { "Type 346", SarhIllumFamily.PlanHhq9 },
+            { "Type 346A", SarhIllumFamily.PlanHhq9 },
+            { "Type 346B", SarhIllumFamily.PlanHhq9 },
             { "HT-233", SarhIllumFamily.PlanHhq9 },
             { "HT-233_AESA", SarhIllumFamily.PlanHhq9 },
 
@@ -246,6 +257,11 @@ namespace CecMod
             { "SPS-49V8", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
             { "SPS-49A(V)1", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
             { "SPS-52", CecNetwork.UsAlliedNaval },
+            { "SPS-550K", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
+            { "AN/MPQ-53", CecNetwork.WesternJoint },
+            { "AN/MPQ-53_mi", CecNetwork.WesternJoint },
+            { "AN/MPQ-65", CecNetwork.WesternJoint },
+            { "AN/MPQ-65_mi", CecNetwork.WesternJoint },
             { "SPG-62", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
             { "eu_SPG-62", CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval },
             { "SPG-55", CecNetwork.UsAlliedNaval },
@@ -338,6 +354,7 @@ namespace CecMod
 
             // --- Soviet / Russian Naval & Air Defense ---
             { "Top_Dome", CecNetwork.RuNaval },
+            { "Top Dome", CecNetwork.RuNaval },
             { "30N6E1_FCR", CecNetwork.RuNaval | CecNetwork.PlanNaval },
             { "30N6E2", CecNetwork.RuNaval },
             { "rfn_30n6e2", CecNetwork.RuNaval },
@@ -351,8 +368,11 @@ namespace CecMod
             { "rfn_5p27", CecNetwork.RuNaval },
             { "rfn_5p27-0", CecNetwork.RuNaval },
             { "rfn_5p27m", CecNetwork.RuNaval },
+            { "5P-27 Furke", CecNetwork.RuNaval },
             { "rfn_mr750", CecNetwork.RuNaval },
             { "rfn_mr760", CecNetwork.RuNaval },
+            { "MR-760 Fregat", CecNetwork.RuNaval },
+            { "Podberezovik", CecNetwork.RuNaval },
             { "Top_Pair", CecNetwork.RuNaval },
             { "Top_Steer", CecNetwork.RuNaval },
             { "Top_Plate", CecNetwork.RuNaval | CecNetwork.PlanNaval },
@@ -360,7 +380,9 @@ namespace CecMod
             { "Fregat_MAM", CecNetwork.RuNaval },
             { "Front_Dome", CecNetwork.RuNaval | CecNetwork.PlanNaval },
             { "rfn_mr90", CecNetwork.RuNaval },
+            { "rfn_3r90m", CecNetwork.RuNaval },
             { "Big_Bird", CecNetwork.RuNaval },
+            { "91N6E", CecNetwork.RuNaval },
             { "36H6", CecNetwork.RuNaval },
             { "96L6", CecNetwork.RuNaval },
 
@@ -370,10 +392,18 @@ namespace CecMod
             { "LJG-346B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "LJQ-346B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "Type_346", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "Type_346A", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "Type_346B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "Type 346", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "Type 346A", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "Type 346B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "LJQ-382", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "Type_382", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "Type 382", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "LJQ-384", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "LJQ-368", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "LJQ-368 054B", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "LJG-XX-054B-S", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "LJQ-36X", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "LJQ-364", CecNetwork.PlanNaval },
             { "Type_364", CecNetwork.PlanNaval },
@@ -382,22 +412,31 @@ namespace CecMod
             { "LJQ-518", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "LJQ-520", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "LJG-316", CecNetwork.PlanNaval },
+            { "LJG-318", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "HT-233", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "HT-233_AESA", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "H-200A", CecNetwork.PlanNaval | CecNetwork.PlaAir },
             { "SLC-14", CecNetwork.PlanNaval | CecNetwork.PlaAir },
+            { "SLC-14 search", CecNetwork.PlanNaval | CecNetwork.PlaAir },
 
             // --- US / NATO Fighter Radars (Link 16 / MADL / IFDL) ---
             { "AN/APG-81", CecNetwork.WesternJoint },
             { "AN/APG-77", CecNetwork.WesternJoint },
+            { "AN/APG-77(V)1", CecNetwork.WesternJoint },
             { "AN/APG-77v4", CecNetwork.WesternJoint },
             { "AN/APG-79", CecNetwork.WesternJoint },
             { "AN/APG-79(V)", CecNetwork.WesternJoint },
             { "AN/APG-82(V)1", CecNetwork.WesternJoint },
             { "AN/APG-83", CecNetwork.WesternJoint },
             { "AN/APG-85", CecNetwork.WesternJoint },
+            { "KF-21 AESA", CecNetwork.WesternJoint },
+            { "B-21 AESA", CecNetwork.WesternJoint },
+            { "J/APG-2", CecNetwork.WesternJoint },
+            { "J/APG-2 (AAM-4 guidance)", CecNetwork.WesternJoint },
             { "AN/APG-68(V)7", CecNetwork.UsNatoAir },
             { "AN/APG-68(V)9", CecNetwork.UsNatoAir },
+            { "AN/APG-63(V)1", CecNetwork.UsNatoAir },
+            { "EL/M-2032", CecNetwork.UsNatoAir },
             { "HAF_APG68_V9", CecNetwork.UsNatoAir },
             { "HAF_APG68_V9_ADV", CecNetwork.UsNatoAir },
             { "Captor-E", CecNetwork.WesternJoint },
@@ -405,6 +444,7 @@ namespace CecMod
             { "RBE2_AA", CecNetwork.WesternJoint },
             { "PS-05/A Mk4 AESA", CecNetwork.WesternJoint },
             { "burger_aesa_radar", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
+            { "weeb_aesa_radar", CecNetwork.UsAlliedNaval | CecNetwork.UsNatoAir },
             { "Link-16_Receiver", CecNetwork.WesternJoint },
 
             // --- Soviet / Russian Fighter Radars (Zaslon APD-518 / Irbis-E / Byelka) ---
@@ -417,13 +457,15 @@ namespace CecMod
             { "N011M", CecNetwork.RuJoint },
             { "N001VE", CecNetwork.RuJoint | CecNetwork.PlaAir },
 
-            // --- PLA Fighter Radars (J-20, J-16, J-15T/D, J-10C, J-35) ---
+            // --- PLA Fighter Radars (J-20, J-16, J-15T/D, J-10C, J-35, J-36) ---
             { "KLJ-5", CecNetwork.PlaJoint },
+            { "KLJ-5 (Type 1475)", CecNetwork.PlaJoint },
             { "KLJ-10A", CecNetwork.PlaJoint },
             { "KLJ-11A", CecNetwork.PlaJoint },
             { "KLJ-15", CecNetwork.PlaJoint },
             { "KLJ-16", CecNetwork.PlaJoint },
             { "KLJ-35", CecNetwork.PlaJoint },
+            { "J-36 AESA", CecNetwork.PlaJoint },
             { "1893", CecNetwork.PlaJoint },
             { "1893-A", CecNetwork.PlaJoint },
             { "J-11BG_AESA", CecNetwork.PlaJoint },
@@ -443,18 +485,51 @@ namespace CecMod
         // 5. CORE HELPERS: Sensor Classification & Compatibility
         // =========================================================================================
 
+        private const string P2027Suffix = " (P2027)";
+
+        /// <summary>
+        /// Strips trailing mod-fork balance suffixes such as <c>" (P2027)"</c> from
+        /// <c>Pacific 2027 - Dynamic Campaign</c> (<c>fork_radars.ini</c>) so sensor classification
+        /// resolves against canonical radar keys while preserving raw <c>_systemName</c> for engine bindings.
+        /// </summary>
+        public static string NormalizeRadarKey(string systemName)
+        {
+            if (string.IsNullOrEmpty(systemName))
+                return string.Empty;
+
+            if (systemName.EndsWith(P2027Suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return systemName.Substring(0, systemName.Length - P2027Suffix.Length).TrimEnd();
+            }
+
+            return systemName;
+        }
+
+        /// <summary>True if the sensor is a pure CW dish illuminator reserved strictly for terminal SARH illumination.</summary>
+        public static bool IsPureCwDishIlluminator(string systemName)
+        {
+            if (string.IsNullOrEmpty(systemName)) return false;
+            if (PureCwDishIlluminators.Contains(systemName)) return true;
+            string key = NormalizeRadarKey(systemName);
+            return !ReferenceEquals(key, systemName) && PureCwDishIlluminators.Contains(key);
+        }
+
         /// <summary>True if the sensor is a synthetic mid-course datalink proxy that cannot provide CW SARH illumination.</summary>
         public static bool IsSyntheticDatalinkSensor(SensorSystem s)
         {
             if (s == null || string.IsNullOrEmpty(s._systemName)) return false;
-            return SyntheticDatalinkSensors.Contains(s._systemName);
+            if (SyntheticDatalinkSensors.Contains(s._systemName)) return true;
+            string key = NormalizeRadarKey(s._systemName);
+            return !ReferenceEquals(key, s._systemName) && SyntheticDatalinkSensors.Contains(key);
         }
 
         /// <summary>True if the sensor is an airborne AWACS / AEW&amp;C surveillance/datalink radar.</summary>
         public static bool IsAwacsRadar(SensorSystem s)
         {
             if (s == null || string.IsNullOrEmpty(s._systemName)) return false;
-            return AwacsRadars.ContainsKey(s._systemName);
+            if (AwacsRadars.ContainsKey(s._systemName)) return true;
+            string key = NormalizeRadarKey(s._systemName);
+            return !ReferenceEquals(key, s._systemName) && AwacsRadars.ContainsKey(key);
         }
 
         /// <summary>
@@ -501,8 +576,7 @@ namespace CecMod
             if ((ap._guidanceType == AmmunitionParameters.GuidanceType.ActiveRadarHoming ||
                  ap._guidanceType == AmmunitionParameters.GuidanceType.IRHoming) &&
                 ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance &&
-                !string.IsNullOrEmpty(sensor._systemName) &&
-                PureCwDishIlluminators.Contains(sensor._systemName))
+                IsPureCwDishIlluminator(sensor._systemName))
             {
                 if (PlatformHasDedicatedMidCourseSensor(sensor._baseObject, ap._associatedSensors))
                     return false;
@@ -537,7 +611,7 @@ namespace CecMod
             {
                 var s = associated[i];
                 if (s != null && s._baseObject == platform && !s.Inoperable.Value &&
-                    !string.IsNullOrEmpty(s._systemName) && !PureCwDishIlluminators.Contains(s._systemName) &&
+                    !string.IsNullOrEmpty(s._systemName) && !IsPureCwDishIlluminator(s._systemName) &&
                     (IsSyntheticDatalinkSensor(s) || s is SensorSystemRadar))
                 {
                     return true;
@@ -553,8 +627,11 @@ namespace CecMod
             if (RadarNetworks.TryGetValue(s._systemName, out var net))
                 return net;
 
+            string name = NormalizeRadarKey(s._systemName);
+            if (!ReferenceEquals(name, s._systemName) && RadarNetworks.TryGetValue(name, out net))
+                return net;
+
             // Prefix fallback for modded variants
-            string name = s._systemName;
             if (name.StartsWith("eu_SPY-", StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("SPY-", StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("SPG-", StringComparison.OrdinalIgnoreCase) ||
@@ -563,7 +640,9 @@ namespace CecMod
                 return CecNetwork.UsAlliedNaval | CecNetwork.NatoEuroNaval | CecNetwork.UsNatoAir;
 
             if (name.StartsWith("AN/APG-7", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("AN/APG-8", StringComparison.OrdinalIgnoreCase))
+                name.StartsWith("AN/APG-8", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("AN/MPQ-53", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("AN/MPQ-65", StringComparison.OrdinalIgnoreCase))
                 return CecNetwork.WesternJoint;
 
             if (name.StartsWith("eu_apar", StringComparison.OrdinalIgnoreCase) ||
@@ -582,6 +661,10 @@ namespace CecMod
             if (name.StartsWith("LJG-346", StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("LJQ-346", StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("Type346", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("Type_346", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("Type 346", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("LJQ-368", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("LJG-XX-054B", StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("KLJ-", StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("KLC-", StringComparison.OrdinalIgnoreCase))
                 return CecNetwork.PlaJoint;
@@ -609,6 +692,9 @@ namespace CecMod
         {
             if (r == null || string.IsNullOrEmpty(r._systemName)) return SarhIllumFamily.None;
             if (RadarSarhFamilies.TryGetValue(r._systemName, out var fam))
+                return fam;
+            string key = NormalizeRadarKey(r._systemName);
+            if (!ReferenceEquals(key, r._systemName) && RadarSarhFamilies.TryGetValue(key, out fam))
                 return fam;
             return SarhIllumFamily.None;
         }
@@ -684,6 +770,7 @@ namespace CecMod
                 if (s is SensorSystemRadar r0 && s._baseObject == platform && !string.IsNullOrEmpty(r0._systemName))
                 {
                     nativeRadarNames.Add(r0._systemName);
+                    nativeRadarNames.Add(NormalizeRadarKey(r0._systemName));
                     if (launcherSarhFamily == SarhIllumFamily.None)
                         launcherSarhFamily = GetSarhFamily(r0);
                 }
@@ -905,6 +992,8 @@ namespace CecMod
             if (r == null || r._baseObject == null || r._baseObject.IsDestroyed) return false;
             if (r.Inoperable.Value || r._radar?._rp == null) return false;
 
+            string rKey = NormalizeRadarKey(r._systemName);
+
             if (!r.IsOn.Value)
             {
                 // Dedicated Targeting SARH illuminators (SPG-62, STIR, Top Dome, etc.) sit idle (IsOn == false)
@@ -917,7 +1006,8 @@ namespace CecMod
 
                 SarhIllumFamily idleFam = GetSarhFamily(r);
                 bool idleMatch = (launcherSarhFamily != SarhIllumFamily.None && idleFam == launcherSarhFamily) ||
-                                 nativeRadarNames.Contains(r._systemName);
+                                 nativeRadarNames.Contains(r._systemName) ||
+                                 nativeRadarNames.Contains(rKey);
                 if (!idleMatch || !r.HasFreeChannels())
                     return false;
 
@@ -929,15 +1019,16 @@ namespace CecMod
             {
                 SarhIllumFamily rFam = GetSarhFamily(r);
                 bool familyMatch = (launcherSarhFamily != SarhIllumFamily.None && rFam == launcherSarhFamily) ||
-                                   nativeRadarNames.Contains(r._systemName);
+                                   nativeRadarNames.Contains(r._systemName) ||
+                                   nativeRadarNames.Contains(rKey);
                 if (familyMatch && r.HasFreeChannels())
                     return true;
             }
 
-            if (needsMidCourse && !PureCwDishIlluminators.Contains(r._systemName))
+            if (needsMidCourse && !IsPureCwDishIlluminator(r._systemName))
             {
                 CecNetwork rNet = GetSensorNetwork(r);
-                if ((rNet & launcherNet) != 0 || nativeRadarNames.Contains(r._systemName))
+                if ((rNet & launcherNet) != 0 || nativeRadarNames.Contains(r._systemName) || nativeRadarNames.Contains(rKey))
                 {
                     if (IsAwacsRadar(r) || IsCecMultifunctionRadar(r))
                         EnsureMidCourseChannels(r);
@@ -1151,14 +1242,14 @@ namespace CecMod
                 SarhIllumFamily rFam = GetSarhFamily(r);
                 bool match = (reqSarhFam != SarhIllumFamily.None && rFam == reqSarhFam) ||
                              (!string.IsNullOrEmpty(currentRadarName) &&
-                              string.Equals(r._systemName, currentRadarName, StringComparison.OrdinalIgnoreCase));
+                              string.Equals(NormalizeRadarKey(r._systemName), NormalizeRadarKey(currentRadarName), StringComparison.OrdinalIgnoreCase));
                 if (!match) return false;
                 return r.HasFreeChannels();
             }
             else
             {
                 // Mid-course datalink handoff for ARH / IIR / Command missiles
-                if (PureCwDishIlluminators.Contains(r._systemName)) return false;
+                if (IsPureCwDishIlluminator(r._systemName)) return false;
                 CecNetwork rNet = GetSensorNetwork(r);
                 if ((rNet & reqNet) == 0) return false;
 
@@ -1350,7 +1441,7 @@ namespace CecMod
             {
                 if (!(systems[i] is SensorSystemRadar r)) continue;
                 if (r.Inoperable.Value || r._radar?._rp == null || !r.CanSeeAirTargets) continue;
-                if (IsSyntheticDatalinkSensor(r) || PureCwDishIlluminators.Contains(r._systemName)) continue;
+                if (IsSyntheticDatalinkSensor(r) || IsPureCwDishIlluminator(r._systemName)) continue;
                 if (r._type == SensorSystemRadar.RadarType.Search ||
                     r._type == SensorSystemRadar.RadarType.DirectedSearch)
                 {
@@ -1486,9 +1577,11 @@ namespace CecMod
         private static bool IsCecMultifunctionRadar(SensorSystemRadar r)
         {
             if (r == null || string.IsNullOrEmpty(r._systemName)) return false;
-            string n = r._systemName;
+            string n = NormalizeRadarKey(r._systemName);
             return n.StartsWith("SPY-", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("eu_SPY-", StringComparison.OrdinalIgnoreCase) ||
+                   n.StartsWith("CEAFAR", StringComparison.OrdinalIgnoreCase) ||
+                   n.StartsWith("eu_apar", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("eu_SAMPSON", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("EMPAR", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("eu_EMPAR", StringComparison.OrdinalIgnoreCase) ||
@@ -1500,7 +1593,10 @@ namespace CecMod
                    n.StartsWith("eu_Sea-fire-500", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("LJG-346", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("LJQ-346", StringComparison.OrdinalIgnoreCase) ||
+                   n.StartsWith("Type346", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("Type_346", StringComparison.OrdinalIgnoreCase) ||
+                   n.StartsWith("Type 346", StringComparison.OrdinalIgnoreCase) ||
+                   n.StartsWith("LJG-XX-054B", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("rfn_5p20k", StringComparison.OrdinalIgnoreCase) ||
                    n.StartsWith("rfn_mf_rlk", StringComparison.OrdinalIgnoreCase);
         }
@@ -1519,7 +1615,10 @@ namespace CecMod
                 ammoName.StartsWith("usaf_", StringComparison.OrdinalIgnoreCase) ||
                 ammoName.StartsWith("dts_aim-", StringComparison.OrdinalIgnoreCase) ||
                 ammoName.StartsWith("jmsdf_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("rok_", StringComparison.OrdinalIgnoreCase))
+                ammoName.StartsWith("jp_", StringComparison.OrdinalIgnoreCase) ||
+                ammoName.StartsWith("rok_", StringComparison.OrdinalIgnoreCase) ||
+                ammoName.StartsWith("fork_agm-", StringComparison.OrdinalIgnoreCase) ||
+                ammoName.StartsWith("fork_jp_", StringComparison.OrdinalIgnoreCase))
                 return CecNetwork.WesternJoint;
 
             if (ammoName.StartsWith("mbda_", StringComparison.OrdinalIgnoreCase) ||
@@ -1531,8 +1630,12 @@ namespace CecMod
 
             if (ammoName.StartsWith("rfn_", StringComparison.OrdinalIgnoreCase) ||
                 ammoName.StartsWith("wp_", StringComparison.OrdinalIgnoreCase) ||
-                ammoName.StartsWith("su_", StringComparison.OrdinalIgnoreCase))
+                ammoName.StartsWith("su_", StringComparison.OrdinalIgnoreCase) ||
+                ammoName.StartsWith("fork_3m", StringComparison.OrdinalIgnoreCase))
                 return CecNetwork.RuJoint;
+
+            if (ammoName.StartsWith("fork_48n6", StringComparison.OrdinalIgnoreCase))
+                return CecNetwork.RuJoint | CecNetwork.PlaJoint;
 
             if (ammoName.StartsWith("plan_", StringComparison.OrdinalIgnoreCase) ||
                 ammoName.StartsWith("pla_", StringComparison.OrdinalIgnoreCase) ||

@@ -15,10 +15,15 @@
     <GameDir Condition="'$(GameDir)' == ''">G:\Program Files (x86)\Steam\steamapps\common\Sea Power</GameDir>
     <ManagedDir>$(GameDir)\Sea Power_Data\Managed</ManagedDir>
     <BepInExCore>$(GameDir)\BepInEx\core</BepInExCore>
+    <AnchorChainDll Condition="'$(AnchorChainDll)' == ''">$([System.IO.Path]::GetFullPath('$(GameDir)\..\..\workshop\content\1286220\3380210757\AnchorChain.dll'))</AnchorChainDll>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- BepInEx 5 + Harmony -->
+    <!-- BepInEx 5 + Harmony + Anchor Chain -->
+    <Reference Include="AnchorChain">
+      <HintPath>$(AnchorChainDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="BepInEx">
       <HintPath>$(BepInExCore)\BepInEx.dll</HintPath>
       <Private>false</Private>

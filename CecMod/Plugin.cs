@@ -14,11 +14,27 @@ namespace CecMod
         /// <summary>Shared logger for the patches.</summary>
         internal static ManualLogSource Log;
 
+        /// <summary>True once Harmony patches and bridges have been applied.</summary>
+        internal static bool IsLoaded { get; private set; }
+
         private void Awake()
         {
-            Log = Logger;
+            InitializeCore(Logger);
+        }
+
+        internal static void InitializeCore(ManualLogSource logger)
+        {
+            if (IsLoaded)
+            {
+                logger?.LogWarning($"{PluginName} already initialized — skipping duplicate load.");
+                return;
+            }
+
+            IsLoaded = true;
+            Log = logger ?? BepInEx.Logging.Logger.CreateLogSource(PluginName);
+
             var harmony = new Harmony(PluginGuid);
-            harmony.PatchAll();
+            harmony.PatchAll(typeof(CecPlugin).Assembly);
             EgBridge.Initialize(harmony);
             Log.LogInfo($"{PluginName} {PluginVersion} loaded — Cooperative Engagement Capability active.");
         }

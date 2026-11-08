@@ -5,9 +5,13 @@ All notable changes to **Sea Power CEC (`CecMod`)** are documented in this file.
 ## [0.3.0] - 2026-11-07
 
 ### Compatibility
+- Added native **Anchor Chain (`IAnchorChainMod` / `[ACPlugin]`)** Workshop entry point (`AnchorChainEntry`) so the mod loads directly from Steam Workshop (`3380210757`) and respects the in-game Sea Power Mod Manager checkbox, while retaining standalone `BepInEx/plugins` support.
 - Added full runtime compatibility bridge (`EgBridge`) for Anchor Chain's **`ExtendedGuidance` (`euromod.extended-guidance` v0.10.27, Workshop ID `3784474738`)** with zero compile-time DLL dependency:
   - Dynamically detects `ExtendedGuidance` whether loaded before or after `CecPlugin.Awake()` (`AppDomain.AssemblyLoad` + live `MissileStatusApi.Active` check) and adapts automatically if toggled via Anchor Chain preferences.
   - Preserves `ExtendedGuidance` mid-course `DatalinkCarrier` (`eu_AEGIS_BL9`, `SYR-1`, etc.) and delayed time-shared terminal CW/IWI illumination (`Runtime.Illuminator`) when `ExtendedGuidance` is active, while retaining strict synthetic-datalink SARH channel enforcement when `ExtendedGuidance` is disabled.
+- Added full runtime compatibility for **`Pacific 2027 - Dynamic Campaign` (Workshop ID `3820272150`)** with zero `.ini` overrides:
+  - Added `CecCapability.NormalizeRadarKey` to transparently strip trailing `" (P2027)"` balance-fork sensor suffixes during doctrinal network, AWACS, multifunction radar, synthetic-datalink, pure-CW illuminator, and SARH family classification while preserving raw `_systemName` bindings for Sea Power's engine.
+  - Added full CEC, AWACS, SARH family, and orphaned-ammo network mappings for `Pacific 2027` and allied submod platforms, sensors, and munitions (`Shmel-M`, `KJ-3000 AESA`, `Type 346/A/B`, `Type 382`, `LJQ-368 054B`, `LJG-XX-054B-S`, `LJG-318`, `SLC-14 search`, `SPS-550K`, `AN/MPQ-53`/`65`, `Top Dome`, `91N6E`, `5P-27 Furke`, `MR-760 Fregat`, `Podberezovik`, `rfn_3r90m`, `AN/APG-77(V)1`, `KF-21 AESA`, `B-21 AESA`, `J/APG-2`, `AN/APG-63(V)1`, `EL/M-2032`, `weeb_aesa_radar`, `KLJ-5 (Type 1475)`, `J-36 AESA`, and `jp_*` / `fork_*` munitions).
 
 ### Added
 - **Hybrid CEC + `ExtendedGuidance` Cooperative Realism**:

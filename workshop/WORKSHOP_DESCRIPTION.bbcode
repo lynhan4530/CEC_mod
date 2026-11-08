@@ -1,0 +1,39 @@
+[h1]Cooperative Engagement Capability (CEC)[/h1]
+
+Brings realistic ship-to-ship and airborne [b]Cooperative Engagement Capability (CEC)[/b], [b]NIFC-CA[/b], and [b]Engage-on-Remote / Forward Pass[/b] missile guidance to [i]Sea Power: Naval Combat in the Missile Age[/i] — with zero stock INI file overrides and full compatibility with both vanilla Sea Power and [b]ExtendedGuidance[/b].
+
+[hr][/hr]
+[h2]Key Features[/h2]
+[list]
+[*][b]Engage-on-Remote & Launch-on-Remote (OTH & EMCON):[/b] Ships and aircraft can engage targets beyond their own radar mast horizon (OTH) or while keeping their own search/fire-control radars completely silent ([b]EMCON[/b]) whenever a networked AWACS or forward surface consort holds a live track and guidance coverage.
+[*][b]Cooperative Launch-Time Channel Sharing:[/b] When a launching ship's own Fire Control Radars (FCRs) are saturated, horizon-masked, destroyed, or silent in EMCON, qualifying consort illuminators/datalinks in the same CEC net automatically allocate guidance channels.
+[*][b]Dynamic Mid-Flight Handoff:[/b] If a missile loses connection to its guiding platform mid-flight (sunk launcher, horizon masking, radar damage, or EMCON), another networked ship, AWACS, or fighter within radar/uplink geometry smoothly assumes mid-course or terminal guidance after a realistic 3–8 second net re-acquisition window. Missiles actively guided by a live consort will no longer self-destruct as orphans if the launching ship is sunk.
+[*][b]ARH SAM & Air-to-Air Forward Pass:[/b] Supports cooperative mid-course datalink guidance and AWACS/fighter forward-pass handoff for modern ARH+MCC surface-to-air missiles ([i]SM-6, SM-2 Blk IIIC, ESSM Blk 2, Aster 15/30, CAMM, 40N6, 9M96, HHQ-9B[/i]) and networked air-to-air missiles ([i]AIM-120D, AIM-260, AIM-174B, Meteor, R-33/R-37M, PL-15/PL-17[/i]).
+[*][b]Doctrinal SARH Illuminator Enforcement:[/b] Strictly enforces real-world X-band / C-band Continuous Wave (CW) vs. Interrupted Continuous Wave (ICWI) vs. Track-Via-Missile (TVM) compatibility so incompatible fire-control radars never cross-guide SARH missiles.
+[*][b]Active Guider Bottom-Bar UI:[/b] Dynamically updates the missile status panel to display the unit currently guiding or illuminating the weapon in real time.
+[/list]
+
+[hr][/hr]
+[h2]4 Doctrinal CEC Networks[/h2]
+Units only share missile guidance within historically/doctrinally compatible datalink architectures (within line-of-sight / 4/3-earth radar horizon between active datalink terminals):
+[list]
+[*][b]US / Allied CEC & NIFC-CA:[/b] Aegis Baselines, NTU, Flight III SPY-6, Australian CEAFAR, Japanese FCS-3A / OPY-1/2, E-2C/D Hawkeye, E-3 Sentry, E-7A Wedgetail, F-35, F-22, F/A-18E/F, F-15C/EX.
+[*][b]NATO / European PAAMS & APAR:[/b] Horizon / FREMM (EMPAR / Herakles), De Zeven Provinciën / Sachsen / Iver Huitfeldt (APAR), Type 45 (SAMPSON), Type 26 (Artisan), Eurofighter Typhoon, Rafale, Gripen, Erieye AWACS.
+[*][b]Soviet / Russian Fort, Poliment & Zaslon:[/b] Slava / Kirov (S-300F Fort), Gorshkov (Poliment), Shtil-1, A-50U Mainstay, Ka-31, MiG-31BM, Su-35S, Su-57.
+[*][b]Chinese PLA / PLAN "A-Shoot-B-Guide":[/b] Type 052C / 052D / 055 (Type 346/A/B), Type 054A / 054B, KJ-500, KJ-600, KJ-2000, J-20, J-16, J-15B/T, J-35.
+[/list]
+
+[hr][/hr]
+[h2]Compatibility[/h2]
+[list]
+[*][b]Zero INI Overrides:[/b] Modifies no unit, sensor, or ammunition INI files — compatible out of the box with ship/aircraft packs, custom scenarios, and overhaul mods.
+[*][b]ExtendedGuidance Support:[/b] Includes a built-in runtime bridge for [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3784474738]ExtendedGuidance[/url] ([i]euromod.extended-guidance[/i]), preserving mid-course [i]DatalinkCarrier[/i] behavior and time-shared delayed terminal CW/IWI illumination across networked consorts. Works seamlessly with or without ExtendedGuidance installed.
+[/list]
+
+[hr][/hr]
+[h2]Installation Requirements[/h2]
+[olist]
+[*]Install [b][url=https://steamcommunity.com/sharedfiles/filedetails/?id=3380210757]Anchor Chain[/url][/b] (and the Anchor Chain Preloader / BepInEx setup per Anchor Chain's instructions).
+[*]Subscribe to [b]Cooperative Engagement Capability (CEC)[/b] on the Steam Workshop.
+[*]Open Sea Power's [b]Mod Manager[/b], enable [b]Cooperative Engagement Capability (CEC)[/b] [b]below Anchor Chain[/b], click Apply, and [b]fully restart the game[/b] (code mods load on game startup).
+[/olist]

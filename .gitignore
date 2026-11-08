@@ -1,0 +1,7 @@
+# Temporary build artifacts
+CecMod/obj/Debug/
+*.tmp
+*.log
+
+# Large decompilation dumps
+scratch/il_code.txt
