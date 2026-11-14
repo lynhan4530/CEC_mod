@@ -149,6 +149,99 @@ namespace CecMod.Patches
             }
         }
 
+        [HarmonyPatch(typeof(WeaponSystemHardpoint), nameof(WeaponSystemHardpoint.activatePreLaunchGuidance))]
+        [HarmonyPrefix]
+        private static void ActivatePreLaunchGuidanceHardpoint_Prefix(
+            WeaponSystemHardpoint __instance,
+            ObjectBase targetObject,
+            out List<SensorSystemRadar> __state)
+        {
+            __state = null;
+            try
+            {
+                if (__instance == null || targetObject == null || __instance._vwp == null)
+                    return;
+
+                ObjectBase self = __instance._baseObject;
+                if (self == null)
+                    return;
+
+                double now = GameTime.missionElapsedTime;
+                if (now >= __instance._lastSearchForSensorTime)
+                {
+                    __instance._lastSearchForSensorTime = now + SearchCadenceSeconds;
+                    CecCapability.RefreshConsortRadars(__instance);
+                }
+
+                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                if (ap == null && __instance._weapons != null && __instance._weapons.Count > 0)
+                    ap = __instance._weapons[0]?._ap;
+                if (ap == null)
+                    ap = __instance._ammunitionOnWeapon?._ap;
+
+                CecCapability.SyncConsortIlluminatorsToAmmo(__instance, ap);
+                if (ap != null
+                    && CecCapability.IsPlatformInAirRadarEmcon(self)
+                    && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
+                {
+                    var offLocalRadars = new List<SensorSystemRadar>();
+                    foreach (SensorSystem s in __instance._vwp._associatedSensors)
+                    {
+                        if (s is SensorSystemRadar radar && radar._baseObject == self && !radar.IsOn.Value)
+                            offLocalRadars.Add(radar);
+                    }
+                    if (offLocalRadars.Count > 0)
+                        __state = offLocalRadars;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidanceHardpoint_Prefix exception: {ex}");
+            }
+        }
+
+        [HarmonyPatch(typeof(WeaponSystemHardpoint), nameof(WeaponSystemHardpoint.activatePreLaunchGuidance))]
+        [HarmonyPostfix]
+        private static void ActivatePreLaunchGuidanceHardpoint_Postfix(
+            WeaponSystemHardpoint __instance,
+            ObjectBase targetObject,
+            List<SensorSystemRadar> __state)
+        {
+            try
+            {
+                if (__instance == null || targetObject == null)
+                    return;
+
+                ObjectBase self = __instance._baseObject;
+                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                if (ap == null && __instance._weapons != null && __instance._weapons.Count > 0)
+                    ap = __instance._weapons[0]?._ap;
+                if (ap == null)
+                    ap = __instance._ammunitionOnWeapon?._ap;
+
+                if (self != null && ap != null && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
+                {
+                    HorizonRangeRef(__instance) = 0f;
+                }
+
+                if (__state != null)
+                {
+                    foreach (SensorSystemRadar r in __state)
+                    {
+                        if (r != null && r.IsOn.Value && self?._sensorsToTurnOff != null && self._sensorsToTurnOff.Contains(r))
+                        {
+                            r.Disable(allowMessage: false);
+                            self._sensorsToTurnOff.Remove(r);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidanceHardpoint_Postfix exception: {ex}");
+            }
+        }
+
         /// <summary>
         /// Ensures <c>WeaponSystem.CheckTargetIsDetectableByFCR</c> checks
         /// <see cref="SensorSystem.CanGuideAmmo"/> on each associated radar, so a synthetic
@@ -168,6 +261,8 @@ namespace CecMod.Patches
                     return true;
 
                 AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                if (ap == null && __instance is WeaponSystemHardpoint hp && hp._weapons != null && hp._weapons.Count > 0)
+                    ap = hp._weapons[0]?._ap;
                 __result = false;
                 foreach (SensorSystem associatedSensor in __instance._vwp._associatedSensors)
                 {
@@ -292,7 +387,7 @@ namespace CecMod.Patches
                     return;
 
                 if (!bestRemote.IsOn.Value)
-                    bestRemote.Enable(allowMessage: false, turnOffAfterEngage: true);
+                    CecCapability.ForceEnableRadarSynchronous(bestRemote);
 
                 if (!bestRemote.IsAimedAtTarget(target))
                     bestRemote.TryToAddTarget(target);

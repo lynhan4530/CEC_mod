@@ -152,10 +152,10 @@ def parse_sarh_family(raw_str: str) -> str:
 
 def parse_guidance_family(raw_str: str) -> str:
     s = (raw_str or "").strip().upper()
-    if "ARH" in s:
-        return "ARH"
     if "SARH" in s:
         return "SARH"
+    if "ARH" in s:
+        return "ARH"
     if "TVM" in s:
         return "TVM"
     if "COMMAND" in s:

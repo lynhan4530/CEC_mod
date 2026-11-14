@@ -1,6 +1,6 @@
 Sender / Receiver,USG-2/3 CEC,TTNT,Link 16 (MIDS/JTIDS),Link 11 (TADIL-A),IFDL (F-22),MADL (F-35),JSIDLS,HN-900,RuNaval / Fort-TVM,TKS-2 / APD-518
-USG-2/3 CEC,Tier 1 - Full CEC,Tier 1 - Full CEC,Tier 2 - Cue Only,Tier 3 - Track Relay,Gateway Required,Gateway Required,N/A,N/A,N/A,N/A
-TTNT,Tier 1 - Full CEC,Tier 1 - Full CEC,Tier 2 - Cue Only,Tier 3 - Track Relay,Gateway Required,Gateway Required,N/A,N/A,N/A,N/A
+USG-2/3 CEC,Tier 1 - Full CEC,Tier 1 - Full CEC,Tier 2 - Midcourse Rescue,Tier 3 - Track Relay,Gateway Required,Gateway Required,N/A,N/A,N/A,N/A
+TTNT,Tier 1 - Full CEC,Tier 1 - Full CEC,Tier 2 - Midcourse Rescue,Tier 3 - Track Relay,Gateway Required,Gateway Required,N/A,N/A,N/A,N/A
 Link 16 (MIDS/JTIDS),Tier 2 - Midcourse Rescue,Tier 2 - Midcourse Rescue,Tier 2 - Midcourse Rescue,Tier 3 - Track Relay,Gateway Required,Gateway Required,N/A,N/A,N/A,N/A
 Link 11 (TADIL-A),Tier 3 - Track Relay,Tier 3 - Track Relay,Tier 3 - Track Relay,Tier 3 - Track Relay,N/A,N/A,N/A,N/A,N/A,N/A
 IFDL (F-22),N/A,N/A,Gateway Required,N/A,Tier 1 - Intra-Flight Only,Gateway Required,N/A,N/A,N/A,N/A

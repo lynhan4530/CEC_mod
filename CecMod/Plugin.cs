@@ -9,7 +9,7 @@ namespace CecMod
     {
         public const string PluginGuid = "com.cecmod.seapower";
         public const string PluginName = "Sea Power CEC";
-        public const string PluginVersion = "0.4.0";
+        public const string PluginVersion = "0.4.1";
 
         /// <summary>Shared logger for the patches.</summary>
         internal static ManualLogSource Log;

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CecMod")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+59eefd651dd24083d099067b1dd54f39accc811d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fe237d38699669de835e1591ac9cc876f76b8d7c")]
 [assembly: System.Reflection.AssemblyProductAttribute("CecMod")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CecMod")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

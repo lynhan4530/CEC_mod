@@ -197,7 +197,7 @@ namespace CecMod.Patches
                     return;
 
                 AmmunitionParameters ap = ammo._ap;
-                bool isSarh = ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
+                bool isSarh = CecCapability.IsSarhMissile(ap);
                 bool hasMidCourseDatalink = ap._midCourseCorrection != null
                                             && ap._midCourseCorrection.AllowsLauncherGuidance;
                 if (!isSarh && !hasMidCourseDatalink)
@@ -244,6 +244,8 @@ namespace CecMod.Patches
                 // Case 2: Pre-launch OTH / EMCON remote FCR coverage across the CEC network.
                 if (!HandoffPatch.IsCheckingRadioConnection)
                 {
+                    RefreshAndSyncConsortRadars(__instance, ap);
+
                     float distToTarget = CecCapability.HorizontalDistance(
                         __instance.transform.position,
                         targetObject.transform.position);
@@ -263,9 +265,35 @@ namespace CecMod.Patches
             }
         }
 
+        private static void RefreshAndSyncConsortRadars(ObjectBase instance, AmmunitionParameters ap)
+        {
+            var wsList = instance?._obp?._weaponSystems;
+            if (wsList == null || CecCapability.GetPlatformProfile(instance).CecTier != CecTier.Tier1)
+                return;
+
+            double now = GameTime.missionElapsedTime;
+            for (int i = 0; i < wsList.Count; i++)
+            {
+                var ws = wsList[i];
+                if (ws == null)
+                    continue;
+
+                if (now >= ws._lastSearchForSensorTime)
+                {
+                    ws._lastSearchForSensorTime = now + 5.0;
+                    CecCapability.RefreshConsortRadars(ws);
+                }
+
+                if (ap != null)
+                {
+                    CecCapability.SyncConsortIlluminatorsToAmmo(ws, ap);
+                }
+            }
+        }
+
         /// <summary>
-        /// Lifts local mast horizon clamps in <see cref="ObjectBase.GetSensorRange"/> when
-        /// <see cref="CecCapability.CanPerformLaunchOnRemote"/> succeeds.
+        /// Lifts local mast horizon clamps and <see cref="ObjectBase.EstimatedSensorRangeData.WeaponSensorLimit"/>
+        /// in <see cref="ObjectBase.GetSensorRange"/> when <see cref="CecCapability.CanPerformLaunchOnRemote"/> succeeds.
         /// </summary>
         [HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.GetSensorRange))]
         [HarmonyPostfix]
@@ -283,40 +311,49 @@ namespace CecMod.Patches
                     || targetObject == null
                     || !targetObject.isAirTarget()
                     || ammo == null
-                    || ammo._ap == null
-                    || __result.SensorData == null)
+                    || ammo._ap == null)
                 {
                     return;
                 }
 
                 AmmunitionParameters ap = ammo._ap;
-                bool isSarh = ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
+                bool isSarh = CecCapability.IsSarhMissile(ap);
                 bool hasMidCourseDatalink = ap._midCourseCorrection != null
                                             && ap._midCourseCorrection.AllowsLauncherGuidance;
                 if (!isSarh && !hasMidCourseDatalink)
                     return;
 
+                RefreshAndSyncConsortRadars(__instance, ap);
+
                 float distToTarget = CecCapability.HorizontalDistance(
                     __instance.transform.position,
                     targetObject.transform.position);
 
-                if (__result.SensorData.Distance >= distToTarget)
+                float effectiveDistance = Mathf.Min(__result.WeaponSensorLimit, __result.SensorData.Distance);
+                bool hasVisionIssue = __result.EngagementIssues != null
+                                      && (__result.EngagementIssues.Contains(ObjectBase.EngagementIssue.CantSeeTarget)
+                                          || __result.EngagementIssues.Contains(ObjectBase.EngagementIssue.NotEmitting));
+                if (effectiveDistance >= distToTarget && !hasVisionIssue)
                     return;
 
                 if (CecCapability.CanPerformLaunchOnRemote(__instance, ap, targetObject))
                 {
                     float cooperativeRange = Mathf.Min(ap._launchRangesInUnity.y, distToTarget + 50f);
-                    if (cooperativeRange > __result.SensorData.Distance)
-                    {
+                    if (__result.SensorData.Distance < cooperativeRange)
                         __result.SensorData.Distance = cooperativeRange;
-                        if (__result.UnscreenedSensorDistance < cooperativeRange)
-                            __result.UnscreenedSensorDistance = cooperativeRange;
+                    if (__result.UnscreenedSensorDistance < cooperativeRange)
+                        __result.UnscreenedSensorDistance = cooperativeRange;
+                    if (__result.WeaponSensorLimit < cooperativeRange)
+                        __result.WeaponSensorLimit = cooperativeRange;
+                    if (__result.UnscreenedWeaponSensorLimit < cooperativeRange)
+                        __result.UnscreenedWeaponSensorLimit = cooperativeRange;
 
-                        if (__result.EngagementIssues != null)
-                        {
-                            __result.EngagementIssues.Remove(ObjectBase.EngagementIssue.CantSeeTarget);
-                            __result.EngagementIssues.Remove(ObjectBase.EngagementIssue.NotEmitting);
-                        }
+                    __result.SensorData.Issue = SensorSystem.SensorIssue.None;
+
+                    if (__result.EngagementIssues != null)
+                    {
+                        __result.EngagementIssues.Remove(ObjectBase.EngagementIssue.CantSeeTarget);
+                        __result.EngagementIssues.Remove(ObjectBase.EngagementIssue.NotEmitting);
                     }
                 }
             }
@@ -337,6 +374,7 @@ namespace CecMod.Patches
             ObjectBase targetObject,
             ref float guidanceSystemPenalty,
             ObjectBase.SensorRangeOptions options,
+            AmmunitionParameters engageAp,
             ref bool __result)
         {
             try
@@ -347,7 +385,7 @@ namespace CecMod.Patches
                 if (!targetObject.isAirTarget())
                     return;
 
-                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                AmmunitionParameters ap = engageAp ?? __instance._ammoForEngage?._ap ?? __instance._ammunitionOnWeapon?._ap;
                 if (CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, targetObject))
                 {
                     __result = true;
@@ -357,6 +395,43 @@ namespace CecMod.Patches
             catch (Exception ex)
             {
                 CecPlugin.Log.LogError($"[CEC] IsVisionRequirementMet_Postfix exception: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Allows <see cref="ObjectBase.AnySensorSeesAirTargetAt"/> (and thus <c>CantSeeAirTarget</c>)
+        /// to succeed for air targets when cooperative Launch-on-Remote coverage exists.
+        /// </summary>
+        [HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.AnySensorSeesAirTargetAt))]
+        [HarmonyPostfix]
+        private static void AnySensorSeesAirTargetAt_Postfix(
+            ObjectBase __instance,
+            ObjectBase targetObject,
+            float distance,
+            ObjectBase.SensorRangeOptions options,
+            bool excludeRadars,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result
+                    || HandoffPatch.IsCheckingRadioConnection
+                    || excludeRadars
+                    || __instance == null
+                    || targetObject == null
+                    || !targetObject.isAirTarget())
+                {
+                    return;
+                }
+
+                if (CecCapability.CanPerformLaunchOnRemote(__instance, null, targetObject))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] AnySensorSeesAirTargetAt_Postfix exception: {ex}");
             }
         }
 
@@ -420,7 +495,7 @@ namespace CecMod.Patches
                 }
 
                 AmmunitionParameters ap = ammo._ap;
-                bool isSarh = ap._guidanceType == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming;
+                bool isSarh = CecCapability.IsSarhMissile(ap);
                 bool hasMidCourseDatalink = ap._midCourseCorrection != null
                                             && ap._midCourseCorrection.AllowsLauncherGuidance;
                 if (!isSarh && !hasMidCourseDatalink)
