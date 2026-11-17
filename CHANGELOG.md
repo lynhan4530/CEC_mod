@@ -2,6 +2,25 @@
 
 All notable changes to **Sea Power CEC (`CecMod`)** are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Added `RemoteTransport`, `FcrRange`, `LauncherObservation`, `RemotePrelaunchReady`, and `CanRadarSee` postfixes to `EgBridge` (`ExtendedGuidance.Runtime` hooks) so aircraft and ships in EMCON/OTH align, pass pre-launch checks, and fire cleanly on remote AWACS/consort tracks under `ExtendedGuidance`.
+- Added `WeaponSystem.isAimedAtObject` postfix (`RemoteEngagementPatch`) and `EnsureRemotePreLaunchTargetAssigned` (`LaunchTimeCecPatch`) so launchers/hardpoints align on injected remote AWACS/consort radars without breaking local EMCON.
+- Updated `HandoffPatch.OnUpdateEveryFrame_Postfix` to sync `EgBridge.SetActiveEgIlluminator` and return early when `FindHandoffRadar` selects the already-guiding radar, and simplified `EgBridge.IsDatalinkStaleOrLost` to check `!LinkAvailable`.
+
+## [0.4.1] - 2026-11-14
+
+### Fixed
+- Fixed `tools/generate_cec_tables.py` (`parse_guidance_family`) substring ordering (`"SARH"` checked before `"ARH"`) so SARH missiles in `CecDataTables.g.cs` are classified as `GuidanceFamily.SARH` instead of `ARH`, restoring Tier 1 Forward Pass (Project Mountain Top) SARH gating and hover telemetry.
+- Expanded `SyncConsortIlluminatorsToAmmo` in `CecCapability.cs` to register consort illuminator `_systemName` entries into `ap._compatibleGuidanceSystems` and track per-ammo injected sensors via `_injectedAmmoSensors` (`ConditionalWeakTable`), ensuring `ExtendedGuidance` terminal illumination and Forward Pass consort selection succeed reliably.
+- Added `WeaponSystemHardpoint.activatePreLaunchGuidance` prefix/postfix hooks in `LaunchTimeCecPatch.cs` for aircraft EMCON and OTH launches.
+
+### Changed
+- Upgraded `USG-2/3 CEC` and `TTNT` vs. `Link 16 (MIDS/JTIDS)` in `data/cec_tables/02_Datalink_Compatibility_Matrix.csv` from `Tier 2 - Cue Only` to `Tier 2 - Midcourse Rescue`.
+- Marked `KLC-500 (P2027)` and `KLC-600 (P2027)` as `AWACS: True` in `data/cec_tables/05_Radars.csv`.
+- Granted unlimited ship-to-ship (`Vessel` <-> `Vessel`) datalink reach in `CecCapability.ArePlatformsInDatalinkReach` (naval SATCOM), and upgraded Tier 1 `Link 16` pairs and Russian `TKS-2 / APD-518` AWACS links in `ResolveBestDatalinkPair`.
+
 ## [0.4.0] - 2026-11-09
 
 ### Added

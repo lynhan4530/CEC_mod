@@ -517,5 +517,65 @@ namespace CecMod.Patches
                 CecPlugin.Log.LogError($"[CEC] FCRDetectionRange_Postfix exception: {ex}");
             }
         }
+
+        /// <summary>
+        /// Ensures <c>WeaponSystem.isAimedAtObject</c> succeeds for <see cref="WeaponSystemHardpoint"/>
+        /// and <see cref="WeaponSystemLauncher"/> when local radars are OFF (EMCON) or OTH-blind and
+        /// an injected remote AWACS/consort radar in <c>_associatedSensors</c> is active and capable.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystem), "isAimedAtObject")]
+        [HarmonyPostfix]
+        private static void IsAimedAtObject_Postfix(
+            WeaponSystem __instance,
+            ObjectBase targetObject,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result
+                    || __instance == null
+                    || __instance._baseObject == null
+                    || targetObject == null
+                    || !targetObject.isAirTarget())
+                {
+                    return;
+                }
+
+                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                if (ap == null && __instance is WeaponSystemHardpoint hp && hp._weapons != null && hp._weapons.Count > 0)
+                    ap = hp._weapons[0]?._ap;
+                if (ap == null)
+                    ap = __instance._ammunitionOnWeapon?._ap;
+                if (ap == null || __instance._vwp?._associatedSensors == null)
+                    return;
+
+                foreach (SensorSystem sensor in __instance._vwp._associatedSensors)
+                {
+                    if (sensor is SensorSystemRadar ssr
+                        && ssr._baseObject != __instance._baseObject
+                        && ssr.IsOn.Value
+                        && !ssr.IsDestroyed
+                        && !ssr.Inoperable.Value
+                        && ssr.CanGuideAmmo(ap)
+                        && ssr.HasFreeTargetChannels(targetObject)
+                        && ssr.HasFreeWeaponChannels()
+                        && CecCapability.RadarCanSee(ssr, targetObject))
+                    {
+                        if (ssr._preLaunchTargetObject != targetObject)
+                        {
+                            ssr.SetPrelaunchObject(targetObject);
+                            ssr._restPositionReached = false;
+                        }
+                        __instance._sensorPreLaunchAligned = true;
+                        __result = true;
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] IsAimedAtObject_Postfix exception: {ex}");
+            }
+        }
     }
 }

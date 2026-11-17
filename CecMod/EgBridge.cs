@@ -256,8 +256,7 @@ namespace CecMod
         }
 
         /// <summary>
-        /// True when <c>ExtendedGuidance</c> has marked the missile's datalink as lost (<c>!LinkAvailable</c>)
-        /// or stale (support track age > 4.0 seconds without fresh radar measurement).
+        /// True when <c>ExtendedGuidance</c> has marked the missile's datalink as lost (<c>!LinkAvailable</c>).
         /// </summary>
         public static bool IsDatalinkStaleOrLost(Missile m)
         {
@@ -278,13 +277,6 @@ namespace CecMod
 
                 if (_stateLinkAvailableRef != null && !_stateLinkAvailableRef(state))
                     return true;
-
-                if (_stateSupportUpdatedRef != null)
-                {
-                    double supUpdated = _stateSupportUpdatedRef(state);
-                    if (supUpdated > 0 && GameTime.missionElapsedTime - supUpdated > 4.0)
-                        return true;
-                }
             }
             catch (Exception ex)
             {
@@ -459,6 +451,55 @@ namespace CecMod
                         nameof(ReadyRemoteGuide_Postfix),
                         AllStatic);
                     _harmony.Patch(readyRemote, postfix: new HarmonyMethod(postfix));
+                }
+
+                // 4. Bridge RemoteTransport so AWACS search radars with HasDataLink=True (e.g. AN/APY-9)
+                //    qualify as remote transport carriers for ARH/SARH missiles with RequiresMissileTracking=false (e.g. AIM-174B, AIM-120D3).
+                MethodInfo remoteTransport = _runtimeType.GetMethod("RemoteTransport", AllStatic);
+                if (remoteTransport != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(RemoteTransport_Postfix),
+                        AllStatic);
+                    _harmony.Patch(remoteTransport, postfix: new HarmonyMethod(postfix));
+                }
+
+                // 5. Bridge FcrRange, LauncherObservation, RemotePrelaunchReady, and CanRadarSee so aircraft
+                //    and ships in EMCON/OTH can align, pass pre-launch checks, and fire on remote AWACS/consort tracks.
+                MethodInfo fcrRange = _runtimeType.GetMethod("FcrRange", AllStatic);
+                if (fcrRange != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(FcrRange_Postfix),
+                        AllStatic);
+                    _harmony.Patch(fcrRange, postfix: new HarmonyMethod(postfix));
+                }
+
+                MethodInfo launcherObs = _runtimeType.GetMethod("LauncherObservation", AllStatic);
+                if (launcherObs != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(LauncherObservation_Postfix),
+                        AllStatic);
+                    _harmony.Patch(launcherObs, postfix: new HarmonyMethod(postfix));
+                }
+
+                MethodInfo remotePrelaunchReady = _runtimeType.GetMethod("RemotePrelaunchReady", AllStatic);
+                if (remotePrelaunchReady != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(RemotePrelaunchReady_Postfix),
+                        AllStatic);
+                    _harmony.Patch(remotePrelaunchReady, postfix: new HarmonyMethod(postfix));
+                }
+
+                MethodInfo canRadarSee = _runtimeType.GetMethod("CanRadarSee", AllStatic);
+                if (canRadarSee != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(CanRadarSee_Postfix),
+                        AllStatic);
+                    _harmony.Patch(canRadarSee, postfix: new HarmonyMethod(postfix));
                 }
 
                 CecPlugin.Log.LogInfo("[CEC] ExtendedGuidance active — hybrid CEC + ExtendedGuidance realism bridge enabled.");
@@ -640,6 +681,154 @@ namespace CecMod
             catch (Exception ex)
             {
                 CecPlugin.Log.LogError($"[CEC] ReadyRemoteGuide_Postfix exception: {ex}");
+            }
+        }
+
+        private static void RemoteTransport_Postfix(
+            SensorSystemRadar radar,
+            AmmunitionParameters ap,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result || !IsActive || radar == null || radar.IsDestroyed || radar.Inoperable.Value)
+                    return;
+
+                if (radar._radar?._rp == null || !radar._radar._rp._hasDataLink)
+                    return;
+
+                if (radar._baseObject != null
+                    && CecCapability.GetPlatformNetwork(radar._baseObject) != CecCapability.CecNetwork.None)
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] RemoteTransport_Postfix exception: {ex}");
+            }
+        }
+
+        private static void FcrRange_Postfix(
+            WeaponSystem weapon,
+            ObjectBase target,
+            Ammunition ammo,
+            ref float __result)
+        {
+            try
+            {
+                if (__result > 0f
+                    || !IsActive
+                    || HandoffPatch.IsCheckingRadioConnection
+                    || weapon?._baseObject == null
+                    || ammo?._ap == null
+                    || target == null
+                    || !target.isAirTarget())
+                {
+                    return;
+                }
+
+                if (CecCapability.CanPerformLaunchOnRemote(weapon._baseObject, ammo._ap, target))
+                {
+                    __result = float.MaxValue;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] FcrRange_Postfix exception: {ex}");
+            }
+        }
+
+        private static void LauncherObservation_Postfix(
+            WeaponSystem weapon,
+            ObjectBase target,
+            AmmunitionParameters ap,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result
+                    || !IsActive
+                    || HandoffPatch.IsCheckingRadioConnection
+                    || weapon?._baseObject == null
+                    || ap == null
+                    || target == null
+                    || !target.isAirTarget())
+                {
+                    return;
+                }
+
+                if (CecCapability.CanPerformLaunchOnRemote(weapon._baseObject, ap, target))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] LauncherObservation_Postfix exception: {ex}");
+            }
+        }
+
+        private static void RemotePrelaunchReady_Postfix(
+            WeaponSystem weapon,
+            ObjectBase target,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result
+                    || !IsActive
+                    || weapon?._baseObject == null
+                    || target == null
+                    || !target.isAirTarget())
+                {
+                    return;
+                }
+
+                AmmunitionParameters ap = weapon._ammoForEngage?._ap;
+                if (ap == null && weapon is WeaponSystemHardpoint hp && hp._weapons != null && hp._weapons.Count > 0)
+                    ap = hp._weapons[0]?._ap;
+                if (ap == null)
+                    ap = weapon._ammunitionOnWeapon?._ap;
+
+                if (ap != null && CecCapability.CanPerformLaunchOnRemote(weapon._baseObject, ap, target))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] RemotePrelaunchReady_Postfix exception: {ex}");
+            }
+        }
+
+        private static void CanRadarSee_Postfix(
+            SensorSystemRadar radar,
+            ObjectBase target,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result
+                    || !IsActive
+                    || radar?._baseObject == null
+                    || target == null
+                    || !target.isAirTarget())
+                {
+                    return;
+                }
+
+                if (radar.IsOn.Value
+                    && !radar.IsDestroyed
+                    && !radar.Inoperable.Value
+                    && CecCapability.RadarCanSee(radar, target))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] CanRadarSee_Postfix exception: {ex}");
             }
         }
     }

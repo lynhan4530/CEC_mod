@@ -139,8 +139,14 @@ namespace CecMod.Patches
                         {
                             r.Disable(allowMessage: false);
                             self._sensorsToTurnOff.Remove(r);
+                            r._preLaunchTargetObject = null;
                         }
                     }
+                }
+
+                if (self != null && ap != null && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
+                {
+                    EnsureRemotePreLaunchTargetAssigned(__instance, targetObject, ap);
                 }
             }
             catch (Exception ex)
@@ -232,13 +238,60 @@ namespace CecMod.Patches
                         {
                             r.Disable(allowMessage: false);
                             self._sensorsToTurnOff.Remove(r);
+                            r._preLaunchTargetObject = null;
                         }
                     }
+                }
+
+                if (self != null && ap != null && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
+                {
+                    EnsureRemotePreLaunchTargetAssigned(__instance, targetObject, ap);
                 }
             }
             catch (Exception ex)
             {
                 CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidanceHardpoint_Postfix exception: {ex}");
+            }
+        }
+
+        private static void EnsureRemotePreLaunchTargetAssigned(
+            WeaponSystem instance,
+            ObjectBase targetObject,
+            AmmunitionParameters ap)
+        {
+            if (instance?._vwp?._associatedSensors == null || targetObject == null)
+                return;
+
+            // Check if any currently ON associated sensor already has _preLaunchTargetObject == targetObject
+            foreach (SensorSystem sensor in instance._vwp._associatedSensors)
+            {
+                if (sensor != null
+                    && sensor.IsOn.Value
+                    && !sensor.IsDestroyed
+                    && !sensor.Inoperable.Value
+                    && sensor._preLaunchTargetObject == targetObject)
+                {
+                    instance._sensorPreLaunchAligned = true;
+                    return;
+                }
+            }
+
+            // Otherwise, assign targetObject to the first active associated sensor (such as an injected remote AWACS/consort radar)
+            foreach (SensorSystem sensor in instance._vwp._associatedSensors)
+            {
+                if (sensor == null || !sensor.IsOn.Value || sensor.IsDestroyed || sensor.Inoperable.Value)
+                    continue;
+                if (ap != null && !sensor.CanGuideAmmo(ap))
+                    continue;
+                if (!sensor.HasFreeTargetChannels(targetObject) || !sensor.HasFreeWeaponChannels())
+                    continue;
+                if (sensor is SensorSystemRadar radar && !CecCapability.RadarCanSee(radar, targetObject))
+                    continue;
+
+                sensor.SetPrelaunchObject(targetObject);
+                sensor._restPositionReached = false;
+                instance._sensorPreLaunchAligned = true;
+                break;
             }
         }
 

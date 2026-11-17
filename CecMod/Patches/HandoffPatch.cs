@@ -294,6 +294,15 @@ namespace CecMod.Patches
                 if (newRadar == null)
                     return;
 
+                if (newRadar == currentRadar
+                    && !__instance.ConnectionLost.Value
+                    && !__instance.ConnectionLostForever.Value
+                    && currentRadar.IsGuidingWeapon(__instance))
+                {
+                    EgBridge.SetActiveEgIlluminator(__instance, newRadar);
+                    return;
+                }
+
                 if (!newRadar.IsOn.Value)
                 {
                     CecCapability.ForceEnableRadarSynchronous(newRadar);
