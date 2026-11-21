@@ -14,15 +14,19 @@ namespace CecMod.Patches
     [HarmonyPatch]
     internal static class LaunchTimeCecPatch
     {
-        private const double SearchCadenceSeconds = 5.0;
+        internal struct PreLaunchEmconState
+        {
+            public List<SensorSystemRadar> OffLocalRadars;
+            public bool WasEmcon;
+        }
 
         private static readonly AccessTools.FieldRef<WeaponSystem, float> HorizonRangeRef =
             AccessTools.FieldRefAccess<WeaponSystem, float>("_horizonRange");
 
         /// <summary>
         /// Replaces vanilla <see cref="WeaponSystem.CheckExternalRadarGuidance"/>.
-        /// Uses <see cref="GameTime.missionElapsedTime"/> and <see cref="WeaponSystem._lastSearchForSensorTime"/>
-        /// (<c>double</c> in 0.8.7) to throttle consort/AWACS injection to once every 5s.
+        /// Uses <see cref="CecCapability.EnsureConsortRadarsFresh"/> (0.25s retry while awaiting an
+        /// active remote radar, 5.0s steady-state refresh once injected).
         /// </summary>
         [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.CheckExternalRadarGuidance))]
         [HarmonyPrefix]
@@ -37,12 +41,7 @@ namespace CecMod.Patches
                 if (!(self is Vessel) && !(self is Aircraft))
                     return false;
 
-                double now = GameTime.missionElapsedTime;
-                if (now < __instance._lastSearchForSensorTime)
-                    return false;
-                __instance._lastSearchForSensorTime = now + SearchCadenceSeconds;
-
-                CecCapability.RefreshConsortRadars(__instance);
+                CecCapability.EnsureConsortRadarsFresh(__instance);
             }
             catch (Exception ex)
             {
@@ -63,9 +62,9 @@ namespace CecMod.Patches
         private static void ActivatePreLaunchGuidance_Prefix(
             WeaponSystemLauncher __instance,
             ObjectBase targetObject,
-            out List<SensorSystemRadar> __state)
+            out PreLaunchEmconState __state)
         {
-            __state = null;
+            __state = default;
             try
             {
                 if (__instance == null || targetObject == null || __instance._vwp == null)
@@ -75,28 +74,9 @@ namespace CecMod.Patches
                 if (self == null)
                     return;
 
-                double now = GameTime.missionElapsedTime;
-                if (now >= __instance._lastSearchForSensorTime)
-                {
-                    __instance._lastSearchForSensorTime = now + SearchCadenceSeconds;
-                    CecCapability.RefreshConsortRadars(__instance);
-                }
-
-                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
-                CecCapability.SyncConsortIlluminatorsToAmmo(__instance, ap);
-                if (ap != null
-                    && CecCapability.IsPlatformInAirRadarEmcon(self)
-                    && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
-                {
-                    var offLocalRadars = new List<SensorSystemRadar>();
-                    foreach (SensorSystem s in __instance._vwp._associatedSensors)
-                    {
-                        if (s is SensorSystemRadar radar && radar._baseObject == self && !radar.IsOn.Value)
-                            offLocalRadars.Add(radar);
-                    }
-                    if (offLocalRadars.Count > 0)
-                        __state = offLocalRadars;
-                }
+                AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
+                CecCapability.EnsureConsortRadarsFresh(__instance, ap);
+                __state = CapturePreLaunchEmconState(__instance, self, ap, targetObject);
             }
             catch (Exception ex)
             {
@@ -114,7 +94,7 @@ namespace CecMod.Patches
         private static void ActivatePreLaunchGuidance_Postfix(
             WeaponSystemLauncher __instance,
             ObjectBase targetObject,
-            List<SensorSystemRadar> __state)
+            PreLaunchEmconState __state)
         {
             try
             {
@@ -122,7 +102,7 @@ namespace CecMod.Patches
                     return;
 
                 ObjectBase self = __instance._baseObject;
-                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
+                AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
 
                 if (self != null && ap != null && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
                 {
@@ -131,18 +111,7 @@ namespace CecMod.Patches
                     HorizonRangeRef(__instance) = 0f;
                 }
 
-                if (__state != null)
-                {
-                    foreach (SensorSystemRadar r in __state)
-                    {
-                        if (r != null && r.IsOn.Value && self?._sensorsToTurnOff != null && self._sensorsToTurnOff.Contains(r))
-                        {
-                            r.Disable(allowMessage: false);
-                            self._sensorsToTurnOff.Remove(r);
-                            r._preLaunchTargetObject = null;
-                        }
-                    }
-                }
+                RestorePreLaunchEmconState(self, __state);
 
                 if (self != null && ap != null && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
                 {
@@ -160,9 +129,9 @@ namespace CecMod.Patches
         private static void ActivatePreLaunchGuidanceHardpoint_Prefix(
             WeaponSystemHardpoint __instance,
             ObjectBase targetObject,
-            out List<SensorSystemRadar> __state)
+            out PreLaunchEmconState __state)
         {
-            __state = null;
+            __state = default;
             try
             {
                 if (__instance == null || targetObject == null || __instance._vwp == null)
@@ -172,33 +141,9 @@ namespace CecMod.Patches
                 if (self == null)
                     return;
 
-                double now = GameTime.missionElapsedTime;
-                if (now >= __instance._lastSearchForSensorTime)
-                {
-                    __instance._lastSearchForSensorTime = now + SearchCadenceSeconds;
-                    CecCapability.RefreshConsortRadars(__instance);
-                }
-
-                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
-                if (ap == null && __instance._weapons != null && __instance._weapons.Count > 0)
-                    ap = __instance._weapons[0]?._ap;
-                if (ap == null)
-                    ap = __instance._ammunitionOnWeapon?._ap;
-
-                CecCapability.SyncConsortIlluminatorsToAmmo(__instance, ap);
-                if (ap != null
-                    && CecCapability.IsPlatformInAirRadarEmcon(self)
-                    && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
-                {
-                    var offLocalRadars = new List<SensorSystemRadar>();
-                    foreach (SensorSystem s in __instance._vwp._associatedSensors)
-                    {
-                        if (s is SensorSystemRadar radar && radar._baseObject == self && !radar.IsOn.Value)
-                            offLocalRadars.Add(radar);
-                    }
-                    if (offLocalRadars.Count > 0)
-                        __state = offLocalRadars;
-                }
+                AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
+                CecCapability.EnsureConsortRadarsFresh(__instance, ap);
+                __state = CapturePreLaunchEmconState(__instance, self, ap, targetObject);
             }
             catch (Exception ex)
             {
@@ -211,7 +156,7 @@ namespace CecMod.Patches
         private static void ActivatePreLaunchGuidanceHardpoint_Postfix(
             WeaponSystemHardpoint __instance,
             ObjectBase targetObject,
-            List<SensorSystemRadar> __state)
+            PreLaunchEmconState __state)
         {
             try
             {
@@ -219,29 +164,14 @@ namespace CecMod.Patches
                     return;
 
                 ObjectBase self = __instance._baseObject;
-                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
-                if (ap == null && __instance._weapons != null && __instance._weapons.Count > 0)
-                    ap = __instance._weapons[0]?._ap;
-                if (ap == null)
-                    ap = __instance._ammunitionOnWeapon?._ap;
+                AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
 
                 if (self != null && ap != null && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
                 {
                     HorizonRangeRef(__instance) = 0f;
                 }
 
-                if (__state != null)
-                {
-                    foreach (SensorSystemRadar r in __state)
-                    {
-                        if (r != null && r.IsOn.Value && self?._sensorsToTurnOff != null && self._sensorsToTurnOff.Contains(r))
-                        {
-                            r.Disable(allowMessage: false);
-                            self._sensorsToTurnOff.Remove(r);
-                            r._preLaunchTargetObject = null;
-                        }
-                    }
-                }
+                RestorePreLaunchEmconState(self, __state);
 
                 if (self != null && ap != null && CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
                 {
@@ -254,6 +184,87 @@ namespace CecMod.Patches
             }
         }
 
+        internal static PreLaunchEmconState CapturePreLaunchEmconState(
+            WeaponSystem ws,
+            ObjectBase self,
+            AmmunitionParameters ap,
+            ObjectBase targetObject)
+        {
+            var state = default(PreLaunchEmconState);
+            if (ap == null)
+                ap = CecCapability.ResolveWeaponAmmunitionParameters(ws);
+
+            if (ap == null
+                || self == null
+                || (ws?._vwp?._associatedSensors == null && self._obp?._sensorSystems == null)
+                || !CecCapability.IsPlatformInAirRadarEmcon(self)
+                || !CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
+            {
+                return state;
+            }
+
+            var offLocalRadars = new List<SensorSystemRadar>();
+            if (ws?._vwp?._associatedSensors != null)
+            {
+                foreach (SensorSystem s in ws._vwp._associatedSensors)
+                {
+                    if (s is SensorSystemRadar radar
+                        && radar._baseObject == self
+                        && !radar.IsOn.Value
+                        && !radar._wasSetOn
+                        && !offLocalRadars.Contains(radar))
+                    {
+                        offLocalRadars.Add(radar);
+                    }
+                }
+            }
+
+            if (self._obp?._sensorSystems != null)
+            {
+                foreach (SensorSystem s in self._obp._sensorSystems)
+                {
+                    if (s is SensorSystemRadar radar
+                        && radar._baseObject == self
+                        && !radar.IsOn.Value
+                        && !radar._wasSetOn
+                        && !offLocalRadars.Contains(radar))
+                    {
+                        offLocalRadars.Add(radar);
+                    }
+                }
+            }
+
+            if (offLocalRadars.Count > 0)
+            {
+                state.OffLocalRadars = offLocalRadars;
+                state.WasEmcon = self.Emcon.Value;
+            }
+
+            return state;
+        }
+
+        internal static void RestorePreLaunchEmconState(ObjectBase self, PreLaunchEmconState state)
+        {
+            if (state.OffLocalRadars != null)
+            {
+                foreach (SensorSystemRadar r in state.OffLocalRadars)
+                {
+                    if (r != null && (r.IsOn.Value || r._wasSetOn || (self?._sensorsToTurnOff != null && self._sensorsToTurnOff.Contains(r))))
+                    {
+                        r.Disable(allowMessage: false);
+                        r.IsOn.Value = false;
+                        self?._sensorsToTurnOff?.Remove(r);
+                        r._preLaunchTargetObject = null;
+                    }
+                }
+            }
+
+            if (state.WasEmcon && self != null && !self.Emcon.Value)
+            {
+                self.Emcon.Value = true;
+            }
+        }
+
         private static void EnsureRemotePreLaunchTargetAssigned(
             WeaponSystem instance,
             ObjectBase targetObject,
@@ -261,6 +272,9 @@ namespace CecMod.Patches
         {
             if (instance?._vwp?._associatedSensors == null || targetObject == null)
                 return;
+
+            if (ap != null)
+                CecCapability.SyncConsortIlluminatorsToAmmo(instance, ap);
 
             // Check if any currently ON associated sensor already has _preLaunchTargetObject == targetObject
             foreach (SensorSystem sensor in instance._vwp._associatedSensors)
@@ -281,6 +295,11 @@ namespace CecMod.Patches
             {
                 if (sensor == null || !sensor.IsOn.Value || sensor.IsDestroyed || sensor.Inoperable.Value)
                     continue;
+                if (sensor is SensorSystemRadar assocRadar
+                    && (CecCapability.IsAwacsRadar(assocRadar) || CecCapability.IsCecMultifunctionRadar(assocRadar)))
+                {
+                    CecCapability.EnsureMidCourseChannels(assocRadar);
+                }
                 if (ap != null && !sensor.CanGuideAmmo(ap))
                     continue;
                 if (!sensor.HasFreeTargetChannels(targetObject) || !sensor.HasFreeWeaponChannels())
@@ -407,7 +426,19 @@ namespace CecMod.Patches
                     && CecCapability.RadarCanSee(current, target);
 
                 if (current != null && currentCanSee && !currentWasAutoEnabledFromEmcon)
+                {
+                    if (!currentIsLocal)
+                    {
+                        if (CecCapability.IsAwacsRadar(current) || CecCapability.IsCecMultifunctionRadar(current))
+                            CecCapability.EnsureMidCourseChannels(current);
+                        EgBridge.SetActiveEgIlluminator(m, current);
+                        CecPlugin.Log.LogInfo(
+                            $"[CEC] Launch-on-Remote: '{m.getObjectIniName()}' (#{m.UniqueID}) from '{launcher?.getName() ?? "?"}' " +
+                            $"guided by remote '{current._baseObject?.getName() ?? "?"}' ({current._systemName}) " +
+                            $"[{CecCapability.GetPlatformProfile(launcher).CecTier} -> {CecCapability.GetPlatformProfile(current._baseObject).CecTier}].");
+                    }
                     return;
+                }
 
                 SensorSystemRadar bestRemote = null;
                 float bestDistSq = float.MaxValue;
@@ -418,6 +449,8 @@ namespace CecMod.Patches
                         continue;
                     if (!CecCapability.CanRadarGuideWeapon(candidate))
                         continue;
+                    if (CecCapability.IsAwacsRadar(candidate) || CecCapability.IsCecMultifunctionRadar(candidate))
+                        CecCapability.EnsureMidCourseChannels(candidate);
                     if (!candidate.CanGuideAmmo(m._ap))
                         continue;
                     if (!candidate.HasFreeTargetChannels(target) || !candidate.HasFreeWeaponChannels())

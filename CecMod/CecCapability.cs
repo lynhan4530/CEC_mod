@@ -1283,14 +1283,24 @@ namespace CecMod
                             ap._associatedSensors.Add(r);
                             ammoInjected.Add(r);
                         }
+                    }
+                }
+            }
 
-                        if (ap._compatibleGuidanceSystems != null
-                            && ap._compatibleGuidanceSystems.Count > 0
-                            && !string.IsNullOrEmpty(r._systemName)
-                            && !ap._compatibleGuidanceSystems.Contains(r._systemName))
-                        {
-                            ap._compatibleGuidanceSystems.Add(r._systemName);
-                        }
+            // Ensure compatible injected remote radars (both SARH illuminators and AWACS/MFR datalink
+            // radars) pass vanilla SensorSystem.CanGuideAmmo's _compatibleGuidanceSystems whitelist.
+            if (ap._compatibleGuidanceSystems != null && ap._compatibleGuidanceSystems.Count > 0)
+            {
+                var associated = ws._vwp._associatedSensors;
+                for (int i = 0; i < associated.Count; i++)
+                {
+                    if (associated[i] is SensorSystemRadar r
+                        && injected.Contains(r)
+                        && !string.IsNullOrEmpty(r._systemName)
+                        && CanSensorGuideAmmo(r, ap)
+                        && !ap._compatibleGuidanceSystems.Contains(r._systemName))
+                    {
+                        ap._compatibleGuidanceSystems.Add(r._systemName);
                     }
                 }
             }
@@ -1339,11 +1349,67 @@ namespace CecMod
             return GetRadarProfile(r).IsMfr;
         }
 
-        private static void EnsureMidCourseChannels(SensorSystemRadar r)
+        public static void EnsureMidCourseChannels(SensorSystemRadar r)
         {
             if (r == null) return;
-            if (r._targetChannels <= 0) r._targetChannels = 32;
-            if (r._weaponChannels <= 0) r._weaponChannels = 32;
+            if (r._targetChannels < 32) r._targetChannels = 32;
+            if (r._weaponChannels < 32) r._weaponChannels = 32;
+        }
+
+        public static AmmunitionParameters ResolveWeaponAmmunitionParameters(WeaponSystem ws)
+        {
+            if (ws == null) return null;
+            if (ws._ammoForEngage?._ap != null)
+                return ws._ammoForEngage._ap;
+            if (ws is WeaponSystemHardpoint hp && hp._weapons != null && hp._weapons.Count > 0)
+            {
+                for (int i = 0; i < hp._weapons.Count; i++)
+                {
+                    if (hp._weapons[i]?._ap != null)
+                        return hp._weapons[i]._ap;
+                }
+            }
+            return ws._ammunitionOnWeapon?._ap;
+        }
+
+        public static bool HasActiveRemoteAssociatedRadar(WeaponSystem ws)
+        {
+            if (ws?._vwp?._associatedSensors == null || ws._baseObject == null) return false;
+            var sensors = ws._vwp._associatedSensors;
+            for (int i = 0; i < sensors.Count; i++)
+            {
+                if (sensors[i] is SensorSystemRadar r
+                    && r._baseObject != null
+                    && r._baseObject != ws._baseObject
+                    && !r._baseObject.IsDestroyed
+                    && !r.IsDestroyed
+                    && !r.Inoperable.Value
+                    && r.IsOn.Value)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static void EnsureConsortRadarsFresh(WeaponSystem ws, AmmunitionParameters ap = null)
+        {
+            if (ws?._baseObject == null || ws._vwp == null) return;
+            if (GetPlatformProfile(ws._baseObject).CecTier == CecTier.Tier1)
+            {
+                double now = GameTime.missionElapsedTime;
+                bool missingRemote = !HasActiveRemoteAssociatedRadar(ws);
+                if (now >= ws._lastSearchForSensorTime || (missingRemote && now >= ws._lastSearchForSensorTime - 4.75))
+                {
+                    RefreshConsortRadars(ws);
+                    ws._lastSearchForSensorTime = now + (HasActiveRemoteAssociatedRadar(ws) ? 5.0 : 0.25);
+                }
+            }
+
+            if (ap != null)
+            {
+                SyncConsortIlluminatorsToAmmo(ws, ap);
+            }
         }
 
         // =========================================================================================
@@ -1476,19 +1542,37 @@ namespace CecMod
 
             var systems = cooperator._obp._sensorSystems;
             float distToTarget = HorizontalDistance(cooperator.transform.position, target.transform.position);
+            var unjammedOptions = new ObjectBase.SensorRangeOptions
+            {
+                IgnoreSelfScreeningJammers = true,
+                IgnoreTargetJamming = true,
+                IgnoreAllOffensiveJamming = true
+            };
 
             for (int i = 0; i < systems.Count; i++)
             {
                 if (!(systems[i] is SensorSystemRadar r)) continue;
+                if (r._type != SensorSystemRadar.RadarType.Search
+                    && r._type != SensorSystemRadar.RadarType.DirectedSearch
+                    && r._type != SensorSystemRadar.RadarType.Targeting)
+                    continue;
                 if (!UsableGuidanceRadar(r)) continue;
                 if (target.isAirTarget() && !r.CanSeeAirTargets) continue;
+                if (!RadarCanSee(r, target)) continue;
 
-                if (RadarCanSee(r, target))
+                if ((cooperator._spottedObjects != null && cooperator._spottedObjects.Contains(target))
+                    || (r._detectedObjects != null && r._detectedObjects.Contains(target)))
                 {
-                    var rangeData = r.GetRange(target);
-                    if (rangeData.Distance > 0f && distToTarget <= rangeData.Distance)
-                        return true;
+                    return true;
                 }
+
+                var rangeData = r.GetRange(target);
+                if (rangeData.Distance > 0f && distToTarget <= rangeData.Distance)
+                    return true;
+
+                var unjammedData = r.GetRange(target, unjammedOptions);
+                if (unjammedData.Distance > 0f && distToTarget <= unjammedData.Distance)
+                    return true;
             }
             return false;
         }

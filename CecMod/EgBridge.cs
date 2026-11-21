@@ -38,6 +38,7 @@ namespace CecMod
         private static AccessTools.FieldRef<object, SensorSystemRadar> _stateIlluminatorRef;
         private static AccessTools.FieldRef<object, bool> _stateLinkAvailableRef;
         private static AccessTools.FieldRef<object, double> _stateSupportUpdatedRef;
+        private static AccessTools.FieldRef<object, Missile> _stateMissileRef;
 
         /// <summary>
         /// Initializes assembly-load watching so <c>ExtendedGuidance</c> is detected immediately if
@@ -47,6 +48,7 @@ namespace CecMod
         {
             _harmony = harmony;
             AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
+            _ = IsActive;
         }
 
         private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
@@ -396,6 +398,12 @@ namespace CecMod
                         {
                             _stateSupportUpdatedRef = AccessTools.FieldRefAccess<object, double>(supUpdatedField);
                         }
+
+                        FieldInfo missileField = stateType.GetField("Missile", AllInstance);
+                        if (missileField != null && missileField.FieldType == typeof(Missile))
+                        {
+                            _stateMissileRef = AccessTools.FieldRefAccess<object, Missile>(missileField);
+                        }
                     }
                 }
 
@@ -428,6 +436,33 @@ namespace CecMod
                         nameof(PlanningLaunchVisibility_Postfix),
                         AllStatic);
                     _harmony.Patch(planningVis, postfix: new HarmonyMethod(postfix));
+                }
+
+                MethodInfo planningCantSee = _runtimeType.GetMethod("PlanningLaunchCantSee", AllStatic);
+                if (planningCantSee != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(PlanningLaunchCantSee_Postfix),
+                        AllStatic);
+                    _harmony.Patch(planningCantSee, postfix: new HarmonyMethod(postfix));
+                }
+
+                MethodInfo planningMatchCantSeeMemo = _runtimeType.GetMethod("PlanningMatchCantSeeMemo", AllStatic);
+                if (planningMatchCantSeeMemo != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(PlanningMatchCantSee_Postfix),
+                        AllStatic);
+                    _harmony.Patch(planningMatchCantSeeMemo, postfix: new HarmonyMethod(postfix));
+                }
+
+                MethodInfo planningMatchCantSee = _runtimeType.GetMethod("PlanningMatchCantSee", AllStatic);
+                if (planningMatchCantSee != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(PlanningMatchCantSee_Postfix),
+                        AllStatic);
+                    _harmony.Patch(planningMatchCantSee, postfix: new HarmonyMethod(postfix));
                 }
 
                 // 2. Bridge ReadNativeContact so CEC missiles launched in EMCON/OTH or guided by a
@@ -502,6 +537,17 @@ namespace CecMod
                     _harmony.Patch(canRadarSee, postfix: new HarmonyMethod(postfix));
                 }
 
+                // 9. Bridge CommandTracking so Tier-1/Tier-2 datalink-capable missiles guided by an active
+                //    remote AWACS/consort radar are not rejected by the launcher's local ContactSensorAssignment check.
+                MethodInfo commandTracking = _runtimeType.GetMethod("CommandTracking", AllStatic);
+                if (commandTracking != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(CommandTracking_Postfix),
+                        AllStatic);
+                    _harmony.Patch(commandTracking, postfix: new HarmonyMethod(postfix));
+                }
+
                 CecPlugin.Log.LogInfo("[CEC] ExtendedGuidance active — hybrid CEC + ExtendedGuidance realism bridge enabled.");
             }
             catch (Exception ex)
@@ -556,6 +602,66 @@ namespace CecMod
             catch (Exception ex)
             {
                 CecPlugin.Log.LogError($"[CEC] PlanningLaunchVisibility_Postfix exception: {ex}");
+            }
+        }
+
+        private static void PlanningLaunchCantSee_Postfix(
+            ObjectBase host,
+            ObjectBase target,
+            Ammunition ammo,
+            ref bool __result)
+        {
+            try
+            {
+                if (!__result
+                    || !IsActive
+                    || HandoffPatch.IsCheckingRadioConnection
+                    || host == null
+                    || target == null
+                    || !target.isAirTarget()
+                    || ammo?._ap == null)
+                {
+                    return;
+                }
+
+                if (CecCapability.CanPerformLaunchOnRemote(host, ammo._ap, target))
+                {
+                    __result = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] PlanningLaunchCantSee_Postfix exception: {ex}");
+            }
+        }
+
+        private static void PlanningMatchCantSee_Postfix(
+            ObjectBase host,
+            ObjectBase target,
+            AmmunitionParameters ap,
+            ref bool __result)
+        {
+            try
+            {
+                if (!__result
+                    || !IsActive
+                    || HandoffPatch.IsCheckingRadioConnection
+                    || host == null
+                    || target == null
+                    || !target.isAirTarget()
+                    || ap == null)
+                {
+                    return;
+                }
+
+                if (CecCapability.CanPerformLaunchOnRemote(host, ap, target))
+                {
+                    __result = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] PlanningMatchCantSee_Postfix exception: {ex}");
             }
         }
 
@@ -829,6 +935,41 @@ namespace CecMod
             catch (Exception ex)
             {
                 CecPlugin.Log.LogError($"[CEC] CanRadarSee_Postfix exception: {ex}");
+            }
+        }
+
+        private static void CommandTracking_Postfix(
+            object s,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result || !IsActive || s == null || _stateMissileRef == null)
+                    return;
+
+                Missile m = _stateMissileRef(s);
+                SensorSystemRadar guider = m?._guidingRadarSystem;
+                if (m == null
+                    || m._ap == null
+                    || guider == null
+                    || guider.IsDestroyed
+                    || guider.Inoperable.Value
+                    || !guider.IsOn.Value)
+                {
+                    return;
+                }
+
+                var mProfile = CecCapability.GetMissileProfile(m._ap);
+                if (mProfile.CecTier <= CecTier.Tier2
+                    && guider.CanGuideAmmo(m._ap)
+                    && CecCapability.RadarCanReachMissile(guider, m))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] CommandTracking_Postfix exception: {ex}");
             }
         }
     }

@@ -271,23 +271,13 @@ namespace CecMod.Patches
             if (wsList == null || CecCapability.GetPlatformProfile(instance).CecTier != CecTier.Tier1)
                 return;
 
-            double now = GameTime.missionElapsedTime;
             for (int i = 0; i < wsList.Count; i++)
             {
                 var ws = wsList[i];
                 if (ws == null)
                     continue;
 
-                if (now >= ws._lastSearchForSensorTime)
-                {
-                    ws._lastSearchForSensorTime = now + 5.0;
-                    CecCapability.RefreshConsortRadars(ws);
-                }
-
-                if (ap != null)
-                {
-                    CecCapability.SyncConsortIlluminatorsToAmmo(ws, ap);
-                }
+                CecCapability.EnsureConsortRadarsFresh(ws, ap);
             }
         }
 
@@ -519,11 +509,173 @@ namespace CecMod.Patches
         }
 
         /// <summary>
+        /// Refreshes consort/AWACS radars and protects EMCON before
+        /// <see cref="WeaponSystem.HasFreeGuidingSensors(Ammunition, ObjectBase, bool)"/>
+        /// auto-enables a local radar on an EMCON shooter with valid remote coverage.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.HasFreeGuidingSensors), new Type[] { typeof(Ammunition), typeof(ObjectBase), typeof(bool) })]
+        [HarmonyPrefix]
+        private static void HasFreeGuidingSensors_Prefix(
+            WeaponSystem __instance,
+            Ammunition ammo,
+            ObjectBase targetObject,
+            out LaunchTimeCecPatch.PreLaunchEmconState __state)
+        {
+            __state = default;
+            try
+            {
+                if (__instance == null
+                    || __instance._baseObject == null
+                    || ammo?._ap == null
+                    || targetObject == null
+                    || !targetObject.isAirTarget())
+                {
+                    return;
+                }
+
+                CecCapability.EnsureConsortRadarsFresh(__instance, ammo._ap);
+                __state = LaunchTimeCecPatch.CapturePreLaunchEmconState(__instance, __instance._baseObject, ammo._ap, targetObject);
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] HasFreeGuidingSensors_Prefix exception: {ex}");
+            }
+        }
+
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.HasFreeGuidingSensors), new Type[] { typeof(Ammunition), typeof(ObjectBase), typeof(bool) })]
+        [HarmonyPostfix]
+        private static void HasFreeGuidingSensors_Postfix(
+            WeaponSystem __instance,
+            Ammunition ammo,
+            ObjectBase targetObject,
+            ref bool __result,
+            LaunchTimeCecPatch.PreLaunchEmconState __state)
+        {
+            try
+            {
+                LaunchTimeCecPatch.RestorePreLaunchEmconState(__instance?._baseObject, __state);
+
+                if (__result
+                    || __instance == null
+                    || __instance._baseObject == null
+                    || ammo?._ap == null
+                    || targetObject == null
+                    || !targetObject.isAirTarget())
+                {
+                    return;
+                }
+
+                if (CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ammo._ap, targetObject))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] HasFreeGuidingSensors_Postfix exception: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Refreshes consort/AWACS radars and prevents <see cref="WeaponSystem.hasFreeWeaponChannel"/>
+        /// from auto-enabling local radars when an active EMCON shooter has Launch-on-Remote coverage.
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.hasFreeWeaponChannel))]
+        [HarmonyPrefix]
+        private static void HasFreeWeaponChannel_Prefix(
+            WeaponSystem __instance,
+            out LaunchTimeCecPatch.PreLaunchEmconState __state)
+        {
+            __state = default;
+            try
+            {
+                if (__instance == null
+                    || __instance._baseObject == null
+                    || __instance._targetObject == null
+                    || !__instance._targetObject.isAirTarget())
+                {
+                    return;
+                }
+
+                AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
+                CecCapability.EnsureConsortRadarsFresh(__instance, ap);
+                __state = LaunchTimeCecPatch.CapturePreLaunchEmconState(__instance, __instance._baseObject, ap, __instance._targetObject);
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] HasFreeWeaponChannel_Prefix exception: {ex}");
+            }
+        }
+
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.hasFreeWeaponChannel))]
+        [HarmonyPostfix]
+        private static void HasFreeWeaponChannel_Postfix(
+            WeaponSystem __instance,
+            ref bool __result,
+            LaunchTimeCecPatch.PreLaunchEmconState __state)
+        {
+            try
+            {
+                LaunchTimeCecPatch.RestorePreLaunchEmconState(__instance?._baseObject, __state);
+
+                if (__result
+                    || __instance == null
+                    || __instance._baseObject == null
+                    || __instance._targetObject == null
+                    || !__instance._targetObject.isAirTarget())
+                {
+                    return;
+                }
+
+                AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
+                if (ap != null && CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, __instance._targetObject))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] HasFreeWeaponChannel_Postfix exception: {ex}");
+            }
+        }
+
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.HasFreeWeaponChannels), new Type[] { typeof(AmmunitionParameters) })]
+        [HarmonyPostfix]
+        private static void HasFreeWeaponChannels_Postfix(
+            WeaponSystem __instance,
+            AmmunitionParameters ap,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result
+                    || __instance == null
+                    || __instance._baseObject == null
+                    || __instance._targetObject == null
+                    || !__instance._targetObject.isAirTarget())
+                {
+                    return;
+                }
+
+                AmmunitionParameters effectiveAp = ap ?? CecCapability.ResolveWeaponAmmunitionParameters(__instance);
+                if (effectiveAp != null && CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, effectiveAp, __instance._targetObject))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] HasFreeWeaponChannels_Postfix exception: {ex}");
+            }
+        }
+
+        /// <summary>
         /// Ensures <c>WeaponSystem.isAimedAtObject</c> succeeds for <see cref="WeaponSystemHardpoint"/>
         /// and <see cref="WeaponSystemLauncher"/> when local radars are OFF (EMCON) or OTH-blind and
         /// an injected remote AWACS/consort radar in <c>_associatedSensors</c> is active and capable.
         /// </summary>
         [HarmonyPatch(typeof(WeaponSystem), "isAimedAtObject")]
+        [HarmonyPriority(Priority.First)]
         [HarmonyPostfix]
         private static void IsAimedAtObject_Postfix(
             WeaponSystem __instance,
@@ -541,13 +693,14 @@ namespace CecMod.Patches
                     return;
                 }
 
-                AmmunitionParameters ap = __instance._ammoForEngage?._ap;
-                if (ap == null && __instance is WeaponSystemHardpoint hp && hp._weapons != null && hp._weapons.Count > 0)
-                    ap = hp._weapons[0]?._ap;
-                if (ap == null)
-                    ap = __instance._ammunitionOnWeapon?._ap;
+                AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
                 if (ap == null || __instance._vwp?._associatedSensors == null)
                     return;
+
+                if (!CecCapability.HasActiveRemoteAssociatedRadar(__instance))
+                {
+                    CecCapability.EnsureConsortRadarsFresh(__instance, ap);
+                }
 
                 foreach (SensorSystem sensor in __instance._vwp._associatedSensors)
                 {
@@ -555,21 +708,34 @@ namespace CecMod.Patches
                         && ssr._baseObject != __instance._baseObject
                         && ssr.IsOn.Value
                         && !ssr.IsDestroyed
-                        && !ssr.Inoperable.Value
-                        && ssr.CanGuideAmmo(ap)
-                        && ssr.HasFreeTargetChannels(targetObject)
-                        && ssr.HasFreeWeaponChannels()
-                        && CecCapability.RadarCanSee(ssr, targetObject))
+                        && !ssr.Inoperable.Value)
                     {
-                        if (ssr._preLaunchTargetObject != targetObject)
+                        if (CecCapability.IsAwacsRadar(ssr) || CecCapability.IsCecMultifunctionRadar(ssr))
                         {
-                            ssr.SetPrelaunchObject(targetObject);
-                            ssr._restPositionReached = false;
+                            CecCapability.EnsureMidCourseChannels(ssr);
                         }
-                        __instance._sensorPreLaunchAligned = true;
-                        __result = true;
-                        return;
+
+                        if (ssr.CanGuideAmmo(ap)
+                            && ssr.HasFreeTargetChannels(targetObject)
+                            && ssr.HasFreeWeaponChannels()
+                            && CecCapability.RadarCanSee(ssr, targetObject))
+                        {
+                            if (ssr._preLaunchTargetObject != targetObject)
+                            {
+                                ssr.SetPrelaunchObject(targetObject);
+                                ssr._restPositionReached = false;
+                            }
+                            __instance._sensorPreLaunchAligned = true;
+                            __result = true;
+                            return;
+                        }
                     }
+                }
+
+                if (CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, targetObject))
+                {
+                    __instance._sensorPreLaunchAligned = true;
+                    __result = true;
                 }
             }
             catch (Exception ex)

@@ -14,19 +14,23 @@ A core goal of `CecMod` is **zero `.ini` overrides** and seamless runtime compat
 ## 2. `ExtendedGuidance.dll` Runtime Bridge (`EgBridge.cs`)
 - **Target Mod**: `ExtendedGuidance` (`euromod.extended-guidance`, Workshop ID `3784474738`).
 - **Zero Compile-Time Dependency**: `CecMod.csproj` does **not** reference `ExtendedGuidance.dll`. `CecMod` compiles and runs identically whether or not `ExtendedGuidance` is installed or enabled in Anchor Chain preferences.
-- **Dynamic Detection**:
-  - Watches `AppDomain.CurrentDomain.AssemblyLoad` for `"ExtendedGuidance"` and probes every `2000` ticks (`ProbeIntervalTicks`) for `ExtendedGuidance.MissileStatusApi.Active` or `Harmony.HasAnyPatches("euromod.extended-guidance")`.
-  - Binds reflection delegates/field refs into `ExtendedGuidance.Runtime` (`DatalinkCarrier`, `CanIlluminate`, `Get(Missile, bool)`, `TerminalIlluminationDue(State, double)`) and `ExtendedGuidance.State` (`Illuminator`, `LinkAvailable`, `SupportUpdated`).
+- **Eager & Dynamic Detection**:
+  - `EgBridge.Initialize(harmony)` watches `AppDomain.CurrentDomain.AssemblyLoad` for `"ExtendedGuidance"` and immediately probes `_ = IsActive;` at `CecPlugin.Awake()` so runtime Harmony hooks are installed before Mono JIT-compiles/inlines `ExtendedGuidance` wrapper methods (important because Anchor Chain loads `ExtendedGuidance` before `CecMod`).
+  - Probes every `2000` ticks (`ProbeIntervalTicks`) for `ExtendedGuidance.MissileStatusApi.Active` or `Harmony.HasAnyPatches("euromod.extended-guidance")` and binds reflection delegates/field refs into `ExtendedGuidance.Runtime` (`DatalinkCarrier`, `CanIlluminate`, `Get(Missile, bool)`, `TerminalIlluminationDue(State, double)`) and `ExtendedGuidance.State` (`Missile`, `Illuminator`, `LinkAvailable`, `SupportUpdated`).
 
-### 8 Dynamic Harmony Hooks Installed on `ExtendedGuidance.Runtime` (`ApplyRuntimeHooks`)
+### 12 Dynamic Harmony Hooks Installed on `ExtendedGuidance.Runtime` (`ApplyRuntimeHooks`)
 1. `PlanningLaunchVisibility` (Postfix): Lifts `PlanningLaunchCantSee` (`< 20.669622f`) to `Mathf.Max(distToTarget + 50f, 25f)` when `CanPerformLaunchOnRemote` succeeds.
-2. `ReadNativeContact` (Prefix): Sets `guide = null; weapon = null;` when a missile is guided remotely or launched OTH/EMCON by a qualified CEC shooter so `ExtendedGuidance` uses the shared taskforce `PlottingTable` radar track instead of rejecting the missile for lacking a local `ContactSensorAssignment`.
-3. `ReadyRemoteGuide` (Postfix): Permits injected Tier 1 consort radars in `weapon._vwp._associatedSensors` (and idle `Targeting` illuminators when `_autoEnableSensor` is true) after verifying `CanGuideAmmo`, Tier 1 interaction, datalink reach, and free channels.
-4. `RemoteTransport` (Postfix): Allows active network radars with `_hasDataLink == true` (e.g., AWACS `AN/APY-9`) to act as remote transport carriers.
-5. `FcrRange` (Postfix): Returns `float.MaxValue` for air targets when `CanPerformLaunchOnRemote` succeeds.
-6. `LauncherObservation` (Postfix): Returns `true` for air targets when `CanPerformLaunchOnRemote` succeeds.
-7. `RemotePrelaunchReady` (Postfix): Checks `_ammoForEngage`, hardpoint `_weapons[0]`, and `_ammunitionOnWeapon` and returns `true` for air targets when `CanPerformLaunchOnRemote` succeeds.
-8. `CanRadarSee` (Postfix): Falls back to `CecCapability.RadarCanSee(radar, target)` for active radars and air targets.
+2. `PlanningLaunchCantSee` (Postfix): Clears `CantSeeTarget` (`false`) directly on the planning wrapper when `CanPerformLaunchOnRemote` succeeds, defeating Mono JIT inlining of `PlanningLaunchVisibility`.
+3. `PlanningMatchCantSeeMemo` (Postfix): Clears CantSee (`false`) directly on the memoized ammo-matching wrapper when `CanPerformLaunchOnRemote` succeeds.
+4. `PlanningMatchCantSee` (Postfix): Clears CantSee (`false`) directly on the un-memoized ammo-matching wrapper when `CanPerformLaunchOnRemote` succeeds.
+5. `ReadNativeContact` (Prefix): Sets `guide = null; weapon = null;` when a missile is guided remotely or launched OTH/EMCON by a qualified CEC shooter so `ExtendedGuidance` uses the shared taskforce `PlottingTable` radar track instead of rejecting the missile for lacking a local `ContactSensorAssignment`.
+6. `ReadyRemoteGuide` (Postfix): Permits injected Tier 1 consort radars in `weapon._vwp._associatedSensors` (and idle `Targeting` illuminators when `_autoEnableSensor` is true) after verifying `CanGuideAmmo`, Tier 1 interaction, datalink reach, and free channels.
+7. `RemoteTransport` (Postfix): Allows active network radars with `_hasDataLink == true` (e.g., AWACS `AN/APY-9`) to act as remote transport carriers.
+8. `FcrRange` (Postfix): Returns `float.MaxValue` for air targets when `CanPerformLaunchOnRemote` succeeds.
+9. `LauncherObservation` (Postfix): Returns `true` for air targets when `CanPerformLaunchOnRemote` succeeds.
+10. `RemotePrelaunchReady` (Postfix): Checks `_ammoForEngage`, hardpoint `_weapons[0]`, and `_ammunitionOnWeapon` and returns `true` for air targets when `CanPerformLaunchOnRemote` succeeds.
+11. `CanRadarSee` (Postfix): Falls back to `CecCapability.RadarCanSee(radar, target)` for active radars and air targets.
+12. `CommandTracking` (Postfix): Returns `true` for Tier-1/Tier-2 datalink-capable missiles when guided by an active, operable radar that passes `CanGuideAmmo` and `RadarCanReachMissile`, preventing local `ContactSensorAssignment` checks from rejecting remote AWACS/consort guiders on `MidCourseCorrection=1` missiles.
 
 ### Cross-Mod Physics & Terminal Illumination Synchronization
 - **Batch Physics-Tick Aliasing (`HandoffPatch.OnFixedUpdate_Prefix`)**: `ExtendedGuidance.Runtime.Prepare` batch-processes all airborne missiles on the first `Missile.OnFixedUpdate` of each tick (`GameTime.missionElapsedTime`). `HandoffPatch` aliases `_launchPlatform` across all remotely guided missiles on that first call and restores them in `OnFixedUpdate_Postfix` / `Finalizer`.

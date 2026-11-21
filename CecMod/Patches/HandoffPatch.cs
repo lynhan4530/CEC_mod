@@ -207,6 +207,15 @@ namespace CecMod.Patches
                 if (!__instance._requiresExternalGuidance)
                     return;
 
+                // Missiles with LocalTerminalOnly=True (e.g., AIM-174B, AIM-120D3) intentionally sever
+                // mid-course datalink and free guiding radar channels upon entering TerminalApproach (pitbull).
+                // Do not fight terminal severance or re-attach them to a mid-course radar.
+                if (__instance._ap._localTerminalOnly
+                    && __instance.getFlightStage() == WeaponBase.FlightStage.TerminalApproach)
+                {
+                    return;
+                }
+
                 bool isSarh = CecCapability.IsSarhMissile(__instance._ap);
                 bool hasMidCourseDatalink = __instance._ap._midCourseCorrection != null
                                             && __instance._ap._midCourseCorrection.AllowsLauncherGuidance;
@@ -294,13 +303,20 @@ namespace CecMod.Patches
                 if (newRadar == null)
                     return;
 
-                if (newRadar == currentRadar
+                if (currentRadar != null
+                    && newRadar == currentRadar
                     && !__instance.ConnectionLost.Value
                     && !__instance.ConnectionLostForever.Value
                     && currentRadar.IsGuidingWeapon(__instance))
                 {
-                    EgBridge.SetActiveEgIlluminator(__instance, newRadar);
+                    EgBridge.SetActiveEgIlluminator(__instance, currentRadar);
                     return;
+                }
+
+                bool isSameRadarRepair = currentRadar != null && newRadar == currentRadar;
+                if (CecCapability.IsAwacsRadar(newRadar) || CecCapability.IsCecMultifunctionRadar(newRadar))
+                {
+                    CecCapability.EnsureMidCourseChannels(newRadar);
                 }
 
                 if (!newRadar.IsOn.Value)
@@ -321,7 +337,7 @@ namespace CecMod.Patches
                 string oldOwner = currentRadar?._baseObject?.getName() ?? "<none>";
                 string oldRadarName = currentRadar?._systemName ?? "<none>";
 
-                if (currentRadar != null && currentRadar != newRadar)
+                if (currentRadar != null && !isSameRadarRepair)
                 {
                     currentRadar.FreeChannels(target, __instance);
                 }
@@ -339,6 +355,11 @@ namespace CecMod.Patches
                 __instance.ConnectionLost.Value = false;
                 __instance.ConnectionLostForever.Value = false;
                 __instance._lostGuidanceTime = now;
+
+                if (isSameRadarRepair)
+                {
+                    return;
+                }
 
                 if (launcher == null || launcher.IsDestroyed)
                 {
@@ -374,6 +395,8 @@ namespace CecMod.Patches
                     continue;
                 if (!EgBridge.CanEgIlluminate(r) || !r.CanGuideAmmo(m._ap))
                     continue;
+                if (CecCapability.IsCecMultifunctionRadar(r))
+                    CecCapability.EnsureMidCourseChannels(r);
                 if (!r.IsGuidingWeapon(m) && (!r.HasFreeTargetChannels(target) || !r.HasFreeWeaponChannels()))
                     continue;
                 if (CecCapability.RadarCanSee(r, target))
