@@ -308,7 +308,7 @@ namespace CecMod
 
             bool sameFlight = IsSameFlightGroup(shooter, consort);
             bool hasAwacs = HasAwacsRadar(shooter) || HasAwacsRadar(consort);
-            bool hasGateway = TaskforceHasActiveGateway(shooter._taskforce);
+            bool hasGateway = TaskforceHasActiveGateway(shooter._taskforce, shooter, consort);
             bool involvesStealthLink = ((p1.Datalinks | p2.Datalinks) & (DatalinkStandard.Madl | DatalinkStandard.Ifdl)) != 0;
 
             InteractionTier bestTier = InteractionTier.Incompatible;
@@ -419,7 +419,32 @@ namespace CecMod
             return false;
         }
 
-        public static bool TaskforceHasActiveGateway(Taskforce tf)
+        private static bool IsGatewayInRadioReach(ObjectBase gw, ObjectBase peer)
+        {
+            if (gw == null || peer == null || gw == peer)
+                return true;
+
+            if (gw is Vessel && peer is Vessel)
+                return true;
+
+            if (HasSatcomTransceiver(gw) || HasSatcomTransceiver(peer))
+                return true;
+
+            // Use requireRadarOn: false so an E-2D / gateway flying with search radar OFF (EMCON)
+            // still relays MADL/TTNT/CEC radio traffic within LOS horizon and instrumented range.
+            float hGw = DatalinkMastHeight(gw, requireRadarOn: false);
+            float hPeer = DatalinkMastHeight(peer, requireRadarOn: false);
+            if (hGw < 0f || hPeer < 0f)
+                return false;
+
+            float dist = HorizontalDistance(gw.transform.position, peer.transform.position);
+            float horizon = RadarCalculator.getRadarHorizon(
+                Mathf.Max(hGw, 20f), Mathf.Max(hPeer, 20f), visual: false, 0f);
+            float maxInstrumented = Mathf.Max(GetMaxDatalinkRange(gw), GetMaxDatalinkRange(peer));
+            return dist <= Mathf.Min(horizon, maxInstrumented);
+        }
+
+        public static bool TaskforceHasActiveGateway(Taskforce tf, ObjectBase shooter = null, ObjectBase consort = null)
         {
             if (tf == null) return false;
 
@@ -427,9 +452,15 @@ namespace CecMod
             {
                 for (int i = 0; i < tf._taskforceAircraft.Count; i++)
                 {
-                    var ac = tf._taskforceAircraft[i];
-                    if (ac != null && !ac.IsDestroyed && GetPlatformProfile(ac).IsGateway)
+                    if (tf._taskforceAircraft[i] is Aircraft ac
+                        && !ac.IsDestroyed
+                        && ac._isInFlight
+                        && GetPlatformProfile(ac).IsGateway
+                        && IsGatewayInRadioReach(ac, shooter)
+                        && IsGatewayInRadioReach(ac, consort))
+                    {
                         return true;
+                    }
                 }
             }
 
@@ -438,7 +469,8 @@ namespace CecMod
                 for (int i = 0; i < tf._taskforceVessels.Count; i++)
                 {
                     var v = tf._taskforceVessels[i];
-                    if (v != null && !v.IsDestroyed && GetPlatformProfile(v).IsGateway)
+                    if (v != null && !v.IsDestroyed && GetPlatformProfile(v).IsGateway
+                        && IsGatewayInRadioReach(v, shooter) && IsGatewayInRadioReach(v, consort))
                         return true;
                 }
             }

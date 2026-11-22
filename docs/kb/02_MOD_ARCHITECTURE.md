@@ -24,7 +24,7 @@ All C# source lives in [CecMod/](file:///G:/Project/CEC_mod/CecMod) targeting `.
    - `NormalizeRadarKey` strips trailing `" (P2027)"` suffix.
    - `GetPlatformProfile`, `GetRadarProfile`, `GetMissileProfile`, `GetSarhFamily`, `GetRequiredSarhFamily`, `GetSensorNetwork`, `GetPlatformNetwork`. All default to `DefaultTier3` when missing.
 2. **Pairwise Interaction & Flight Isolation**:
-   - `ResolveBestDatalinkPair` / `EvaluateInteraction` — computes best `InteractionTier` across bitmask flags, handles `Tier1_IntraFlightOnly` (live `Formation` / `ActiveFormationLeader` checks in `IsSameFlightGroup`), cross-flight stealth gateway bridging & `GatewayRequired` (`TaskforceHasActiveGateway`), and non-stealth Tier 1 Link 16 upgrades (excluding `Madl`/`Ifdl` platforms).
+   - `ResolveBestDatalinkPair` / `EvaluateInteraction` — computes best `InteractionTier` across bitmask flags, handles `Tier1_IntraFlightOnly` (live `Formation` / `ActiveFormationLeader` checks in `IsSameFlightGroup`), cross-flight stealth gateway bridging & `GatewayRequired` (`TaskforceHasActiveGateway(tf, shooter, consort)`, which requires an airborne `Aircraft._isInFlight` gateway within radio reach of both peers via `IsGatewayInRadioReach` using `requireRadarOn: false`), and non-stealth Tier 1 Link 16 upgrades (excluding `Madl`/`Ifdl` platforms).
 3. **Range & Horizon Physics**:
    - `ArePlatformsInDatalinkReach`, `DatalinkMastHeight`, `RadarCanSee` (range, `RadarCalculator.getRadarHorizon`, and FOV enforcement for `DirectedSearch` / non-AWACS aircraft radars), `RadarCanReachMissile`, `IsPlatformInAirRadarEmcon`, `IsPlatformInSurfaceRadarEmcon`, `HasLocalRadarSight` (skipping `IsSyntheticDatalinkSensor` and `IsNonAirSearchHelperSensor`).
 4. **Strict 4-Tier Gating Engine**:

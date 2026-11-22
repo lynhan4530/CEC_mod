@@ -17,7 +17,7 @@
 | [TC-11](#tc-11--tier-3-cold-war-ship--missile-isolation) | C | Tier 3 Cold War Ship / Missile Isolation | `UNSURE` | After turning launcher radar OFF, illuminator remained ON (suspected `ExtendedGuidance` behavior; verify later). |
 | [TC-12](#tc-12--tier-0-standalone--ir-munitions) | C | Tier 0 Standalone / IR Munitions | `PASS` | User confirmed passed in-game. |
 | [TC-13](#tc-13--stealth-intra-flight-isolation-madlifdl) | D | Stealth Intra-Flight Isolation (`MADL` / `IFDL`) | `PASS` | User confirmed passed in-game (same-flight F-35 fires via `[MADL | Tier 1]`; separate-flight F-35 and non-gateway `F/A-18F` Block II blocked with yellow Link 16 cue; `F/A-18F Block III` fires as gateway). |
-| [TC-14](#tc-14--gateway-bridging-e-2d--fa-18f-blk-iii) | D | Gateway Bridging (`E-2D` / `F/A-18F Blk III`) | `FAIL` | Can fire with gateway when AWACS radar is OFF, but UI hover needs update (shows `[Link 16 | Tier 1]` instead of `MADL` / `(GW)` gateway indicator). |
+| [TC-14](#tc-14--gateway-bridging-e-2d--fa-18f-blk-iii) | D | Gateway Bridging (`E-2D` / `F/A-18F Blk III`) | `PASS` | User confirmed passed in-game (airborne gateway in radio reach bridges cross-flight `MADL` / `(GW)` even with AWACS search radar OFF). |
 | [TC-15](#tc-15--datalink-horizon--reach-limits--ship-satcom) | D | Datalink Horizon & Reach Limits + Ship SATCOM | `Pending` | — |
 | [TC-16](#tc-16--pitbull-terminal-localterminalonlytrue-clean-log) | E | Pitbull Terminal (`LocalTerminalOnly=True`) Clean Log | `PASS` | User confirmed passed in-game. |
 | [TC-17](#tc-17--sunken-launcher-survivor-takeover) | E | Sunken Launcher Survivor Takeover | `PASS` | User confirmed passed in-game. |
@@ -204,17 +204,15 @@
 ---
 
 ### TC-14 — Gateway Bridging (`E-2D` / `F/A-18F Blk III`)
-- **Status**: `FAIL`
+- **Status**: `PASS`
 - **Setup**: Same as **TC-13**, but add an active `E-2D` (or `F/A-18F Block III`) to the taskforce.
 - **Steps**: Order Flight 2 `F-35` (EMCON) to shoot at Flight 1 lead's target.
 - **Expected Result**:
   - `TaskforceHasActiveGateway` upgrades link to `Tier1_FullCec`.
   - Separate-flight `F-35` can now fire in EMCON; bottom bar shows `(GW)`.
 - **Result / Notes**:
-  - Tested on `2026-11-22` (see `media_1795297311153_fb70d43b.jpg`):
-    - Tested with `F/A-18F VFA-102 'Diamondbacks'` (`36,983 ft`, `AIM-120D3`), `F-35C VFA-101 'Grim Reapers'-1/-2` (`36,001 ft`, radar ON), and `#1004 (AEW&C) VAW-113` (`30,009 ft`, AWACS radar **OFF**).
-    - **Firing**: With gateway present (even with AWACS radar OFF), the shooter was able to fire the missile.
-    - **UI Failure**: Marked `FAIL` pending UI update — hover tooltip displays `CEC Track: F-35C VFA-101 'Grim Reapers'-2 [Link 16 | Tier 1]` (`Sensor Range: 95/95Nmi`, `Time Of Flight: 180S`) rather than reflecting the `MADL` / `(GW)` gateway bridge.
+  - **Confirmation (`2026-11-22`)**: User confirmed passed in-game following the TC-13/TC-14 fixes (live formation checks in `IsSameFlightGroup`, `MADL (GW)` / `(GW)` gateway protocol formatting, and airborne + radio-horizon reach enforcement via `IsGatewayInRadioReach` with `requireRadarOn: false` so an EMCON `E-2D` / gateway still bridges within radio reach).
+  - *Previous pre-fix run (`2026-11-22`, `media_1795297311153_fb70d43b.jpg`)*: Shooter could fire with an `E-2D` present even with AWACS radar OFF, but hover tooltip displayed `CEC Track: F-35C VFA-101 'Grim Reapers'-2 [Link 16 | Tier 1]` instead of `MADL` / `(GW)`.
 
 ---
 

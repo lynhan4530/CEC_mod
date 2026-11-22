@@ -5,6 +5,7 @@ All notable changes to **Sea Power CEC (`CecMod`)** are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Enforced airborne (`Aircraft._isInFlight`) and radio-horizon/instrumented reach checks (`CecCapability.IsGatewayInRadioReach`, using `DatalinkMastHeight(..., requireRadarOn: false)` so an EMCON `E-2D` / gateway still relays radio links) in `CecCapability.TaskforceHasActiveGateway` (`TC-14`).
 - Fixed stealth `MADL` / `IFDL` intra-flight isolation, helper-sensor leaks, and missing Block III Super Hornet entries (`TC-13`):
   - Excluded stealth `MADL` / `IFDL` platforms (`F-35` / `F-22`) from the `Link 16 <-> Link 16` Tier 1 upgrade in `CecCapability.ResolveBestDatalinkPair`, returned `Tier1_IntraFlightOnly` for same-flight pairs, and bridged cross-flight `MADL` / `IFDL` pairs to `Tier1_FullCec` (`(GW)`) when an active gateway is present.
   - Replaced stale `_flightGroupLeaders` caching in `CecCapability.IsSameFlightGroup` with live `Formation` / `ActiveFormationLeader` checks.
