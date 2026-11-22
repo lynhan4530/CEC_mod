@@ -189,7 +189,7 @@ namespace CecMod
 
             // 2. Aimed / Hovered Target Telemetry
             GUILayout.Label("<color=cyan><b>=== TARGET EVALUATION ===</b></color>");
-            ObjectBase target = GetAimedOrHoveredTarget(selected);
+            ObjectBase target = GetAimedOrHoveredTarget(selected, out bool isFallbackContact);
             if (selected != null && target != null)
             {
                 float distNm = CecCapability.HorizontalDistance(selected.transform.position, target.transform.position) * 0.036285132f;
@@ -200,7 +200,7 @@ namespace CecMod
                 bool spottedLocally = selected._spottedObjects != null && selected._spottedObjects.Contains(target);
                 bool localSight = CecCapability.HasLocalRadarSight(selected, target);
 
-                GUILayout.Label($"<b>Target:</b> {target.FullIDData()}");
+                GUILayout.Label($"<b>Target:</b> {target.FullIDData()}{(isFallbackContact ? " <color=grey>(Nearest Air Contact)</color>" : "")}");
                 GUILayout.Label($"<b>Distance:</b> {distNm:F1} nmi  |  <b>Alt:</b> {altFt:F0} ft");
                 GUILayout.Label($"<b>Radar Horizon:</b> {horizonNm:F1} nmi (Mast: {mastY * 220.47266f:F0} ft)");
                 GUILayout.Label($"<b>Organic Spot:</b> {(spottedLocally ? "<color=lime>YES</color>" : "<color=yellow>NO (Consort Sighted)</color>")}");
@@ -260,6 +260,13 @@ namespace CecMod
                 {
                     DrawWeaponStateSummary(selected, null, GetCurrentAmmunition(selected));
                 }
+            }
+
+            if (selected != null)
+            {
+                GUILayout.Space(5f);
+                Ammunition diagAmmo = GetBestAawAmmoForDiagnostics(selected, target);
+                DrawAutoEngageDiagnostics(selected, target, diagAmmo);
             }
 
             GUILayout.Space(15f);
@@ -341,8 +348,9 @@ namespace CecMod
             }
         }
 
-        private static ObjectBase GetAimedOrHoveredTarget(ObjectBase selected)
+        private static ObjectBase GetAimedOrHoveredTarget(ObjectBase selected, out bool isFallbackContact)
         {
+            isFallbackContact = false;
             try
             {
                 object att = GetActiveAttackingState();
@@ -391,7 +399,185 @@ namespace CecMod
             if (selected?._ai?._objectToAttack != null && !selected._ai._objectToAttack.IsDestroyed)
                 return selected._ai._objectToAttack;
 
+            var localVehicles = selected?._taskforce?.PlottingTable?.LocalVehicles;
+            if (localVehicles != null)
+            {
+                ObjectBase bestHostile = null;
+                float bestHostileDistSq = float.MaxValue;
+                ObjectBase bestAny = null;
+                float bestAnyDistSq = float.MaxValue;
+                Vector3 shooterPos = selected.transform.position;
+
+                foreach (var kvp in localVehicles)
+                {
+                    ObjectBase obj = kvp.Key;
+                    Vehicle veh = kvp.Value;
+                    if (obj == null || obj.IsDestroyed || !obj.isAirTarget() || obj._taskforce == selected._taskforce)
+                        continue;
+
+                    float distSq = (obj.transform.position - shooterPos).sqrMagnitude;
+                    if (veh != null && veh.CurrentRelationship() == RelationsState.Hostile)
+                    {
+                        if (distSq < bestHostileDistSq)
+                        {
+                            bestHostileDistSq = distSq;
+                            bestHostile = obj;
+                        }
+                    }
+                    else if (distSq < bestAnyDistSq)
+                    {
+                        bestAnyDistSq = distSq;
+                        bestAny = obj;
+                    }
+                }
+
+                ObjectBase fallback = bestHostile ?? bestAny;
+                if (fallback != null)
+                {
+                    isFallbackContact = true;
+                    return fallback;
+                }
+            }
+
             return null;
+        }
+
+        private static Ammunition GetBestAawAmmoForDiagnostics(ObjectBase shooter, ObjectBase target)
+        {
+            Ammunition current = GetCurrentAmmunition(shooter);
+            if (current?._ap != null)
+                return current;
+
+            if (shooter?.AmmunitionAmountDictionary == null || target == null || !target.isAirTarget())
+                return null;
+
+            float targetAlt = target.AltitudeOverClutter;
+            Ammunition best = null;
+            float bestRange = -1f;
+
+            foreach (var kvp in shooter.AmmunitionAmountDictionary)
+            {
+                if (kvp.Value < 1)
+                    continue;
+
+                Ammunition ammo = shooter.getAmmunitionByName(kvp.Key);
+                AmmunitionParameters ap = ammo?._ap;
+                if (ap == null || ap._type != Ammunition.Type.Missile)
+                    continue;
+                if (ap._targetType != Ammunition.Target.AAW && ap._secondaryTargetType != Ammunition.Target.AAW)
+                    continue;
+                if (!ap._autoAttackOutsideAltitudes && targetAlt < ap._attackAltitudesInUnity.x)
+                    continue;
+
+                if (ap._launchRangesInUnity.y > bestRange)
+                {
+                    bestRange = ap._launchRangesInUnity.y;
+                    best = ammo;
+                }
+            }
+
+            return best;
+        }
+
+        private static string FormatRangeNm(float unityRange)
+        {
+            if (float.IsNaN(unityRange) || float.IsInfinity(unityRange) || unityRange >= 1e6f)
+                return "Inf";
+            if (unityRange < 0f)
+                return $"{unityRange * 0.036285132f:F1}";
+            return $"{unityRange * 0.036285132f:F1}";
+        }
+
+        private static bool IsTargetBeingProcessed(AI ai, ObjectBase target)
+        {
+            if (ai?._objectsBeingProcessed == null || target == null)
+                return false;
+
+            for (int i = 0; i < ai._objectsBeingProcessed.Count; i++)
+            {
+                if (ai._objectsBeingProcessed[i].obj == target)
+                    return true;
+            }
+            return false;
+        }
+
+        private static void DrawAutoEngageDiagnostics(ObjectBase shooter, ObjectBase target, Ammunition diagAmmo)
+        {
+            GUILayout.Label("<color=cyan><b>=== AUTONOMOUS AI (WEAPONS FREE) ===</b></color>");
+            if (shooter == null)
+                return;
+
+            try
+            {
+                AI ai = shooter._ai;
+                string forceEmconStr = ai != null ? (ai._excludeFromAIRadarRoutine ? "<color=yellow>YES</color>" : "No") : "?";
+                string ctrlStr = shooter.IsControllable ? "<color=lime>YES</color>" : "<color=red>NO</color>";
+                string visMode = Singleton<OptionsManager>.InstanceExists()
+                    ? Singleton<OptionsManager>.Instance.RequireVisionToEngage.ToString()
+                    : "?";
+
+                GUILayout.Label($"<b>WeaponStatus:</b> {shooter._weaponStatus}  |  <b>ForceEMCON:</b> {forceEmconStr}  |  <b>Ctrl:</b> {ctrlStr}  |  <b>VisionMode:</b> {visMode}");
+
+                if (target == null)
+                {
+                    GUILayout.Label($"<b>Tasks:</b> {shooter._currentEngageTasks?.Count ?? 0}  |  <color=grey>No hostile/unknown air contact on taskforce plot.</color>");
+                    return;
+                }
+
+                Vehicle veh = target.GetMapVehicle(shooter._taskforce);
+                string relStr = veh != null ? veh.CurrentRelationship().ToString() : "None";
+                string idStr = veh != null ? (veh.Identified.Value ? "<color=lime>YES</color>" : "<color=yellow>NO</color>") : "?";
+                string liveStr = veh != null ? (veh.HasLiveTrack ? "<color=lime>YES</color>" : "<color=yellow>NO</color>") : "?";
+                string tfRelStr = shooter._taskforce != null && target._taskforce != null
+                    ? shooter._taskforce.RelationshipTo(target._taskforce).ToString()
+                    : "?";
+                GUILayout.Label($"<b>Contact Rel:</b> {relStr}  |  <b>ID:</b> {idStr}  |  <b>LiveTrack:</b> {liveStr}  |  <b>TF Rel:</b> {tfRelStr}");
+
+                if (ai != null)
+                {
+                    bool processed = ai._processedObjects != null && ai._processedObjects.Contains(target);
+                    bool orienting = IsTargetBeingProcessed(ai, target);
+                    bool possible = ai._possibleTargetsWithPriorities != null && ai._possibleTargetsWithPriorities.ContainsKey(target);
+                    int taskCount = shooter._currentEngageTasks?.Count ?? 0;
+
+                    GUILayout.Label(
+                        $"<b>AI Processed:</b> {(processed ? "<color=lime>YES</color>" : "<color=red>NO</color>")}  |  " +
+                        $"<b>Orienting:</b> {(orienting ? "<color=yellow>YES</color>" : "No")}  |  " +
+                        $"<b>In PossibleTargets:</b> {(possible ? "<color=lime>YES</color>" : "<color=red>NO</color>")}  |  " +
+                        $"<b>Tasks:</b> {taskCount}");
+                }
+
+                if (diagAmmo?._ap != null)
+                {
+                    bool match = shooter.DoesAmmoMatchTarget(diagAmmo._ap, target, out _);
+                    var ranges = shooter.GetMaxEngagementRanges(target, diagAmmo, requireOpenSensorChannel: false);
+                    float distUnity = CecCapability.HorizontalDistance(shooter.transform.position, target.transform.position);
+
+                    WeaponSystem ws = FindDiagnosticWeaponSystem(shooter, target, diagAmmo);
+                    string freeGuideStr = "?";
+                    string visMetStr = "?";
+                    if (ws != null)
+                    {
+                        bool freeSensor = ws.HasFreeGuidingSensors(diagAmmo, target, canTurnOnSensor: false);
+                        var opts = ObjectBase.HomeOnJamOptions(shooter, target, diagAmmo._ap);
+                        bool visMet = ws.IsVisionRequirementMet(target, out _, opts, diagAmmo._ap);
+                        freeGuideStr = freeSensor ? "<color=lime>YES</color>" : "<color=red>NO</color>";
+                        visMetStr = visMet ? "<color=lime>YES</color>" : "<color=red>NO</color>";
+                    }
+
+                    GUILayout.Label(
+                        $"<b>Ammo:</b> {diagAmmo._ap._ammunitionFileName}  |  " +
+                        $"<b>Match:</b> {(match ? "<color=lime>YES</color>" : "<color=red>NO</color>")}  |  " +
+                        $"<b>FreeGuide:</b> {freeGuideStr}  |  " +
+                        $"<b>VisionMet:</b> {visMetStr}");
+                    GUILayout.Label(
+                        $"<b>Ranges (nmi):</b> Dist={distUnity * 0.036285132f:F1}  |  Kin={FormatRangeNm(ranges.KinematicRange)}  |  Sens={FormatRangeNm(ranges.SensorRange)}  |  Terr={FormatRangeNm(ranges.TerrainRange)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                GUILayout.Label($"<color=red>AI Diagnostics error: {ex.Message}</color>");
+            }
         }
 
         private static Ammunition GetCurrentAmmunition(ObjectBase selected)
@@ -635,7 +821,47 @@ namespace CecMod
                 sb.Append(")");
             }
 
-            LogToDm(sb.ToString(), "cyan");
+            try
+            {
+                AI ai = shooter._ai;
+                sb.Append($" | AI[WS={shooter._weaponStatus}, ForceEMCON={(ai != null ? ai._excludeFromAIRadarRoutine.ToString() : "?")}");
+                if (target != null && !target.IsDestroyed)
+                {
+                    Vehicle veh = target.GetMapVehicle(shooter._taskforce);
+                    string rel = veh != null ? veh.CurrentRelationship().ToString() : "None";
+                    string id = veh != null ? veh.Identified.Value.ToString() : "?";
+                    string live = veh != null ? veh.HasLiveTrack.ToString() : "?";
+                    bool proc = ai?._processedObjects != null && ai._processedObjects.Contains(target);
+                    bool poss = ai?._possibleTargetsWithPriorities != null && ai._possibleTargetsWithPriorities.ContainsKey(target);
+                    sb.Append($", Rel={rel}, ID={id}, Live={live}, Proc={proc}, Poss={poss}");
+
+                    Ammunition diagAmmo = GetBestAawAmmoForDiagnostics(shooter, target);
+                    if (diagAmmo?._ap != null)
+                    {
+                        bool match = shooter.DoesAmmoMatchTarget(diagAmmo._ap, target, out _);
+                        var ranges = shooter.GetMaxEngagementRanges(target, diagAmmo, requireOpenSensorChannel: false);
+                        sb.Append($", Ammo={diagAmmo._ap._ammunitionFileName}, Match={match}, Kin={FormatRangeNm(ranges.KinematicRange)}, Sens={FormatRangeNm(ranges.SensorRange)}");
+
+                        WeaponSystem diagWs = FindDiagnosticWeaponSystem(shooter, target, diagAmmo);
+                        if (diagWs != null)
+                        {
+                            bool freeGuide = diagWs.HasFreeGuidingSensors(diagAmmo, target, canTurnOnSensor: false);
+                            var opts = ObjectBase.HomeOnJamOptions(shooter, target, diagAmmo._ap);
+                            bool visMet = diagWs.IsVisionRequirementMet(target, out _, opts, diagAmmo._ap);
+                            sb.Append($", Vis={visMet}, FreeGuide={freeGuide}");
+                        }
+                    }
+                }
+                sb.Append("]");
+            }
+            catch (Exception ex)
+            {
+                sb.Append($" | AI[Err:{ex.Message}]");
+            }
+
+            string logLine = sb.ToString();
+            LogToDm(logLine, "cyan");
+            CecPlugin.Log?.LogInfo(logLine);
         }
 
         private static string FormatTier(CecTier tier)

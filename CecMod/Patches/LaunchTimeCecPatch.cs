@@ -39,6 +39,9 @@ namespace CecMod.Patches
         private static readonly AccessTools.FieldRef<WeaponSystem, float> HorizonRangeRef =
             AccessTools.FieldRefAccess<WeaponSystem, float>("_horizonRange");
 
+        private static readonly AccessTools.FieldRef<AI, ObjectBase> AiBaseObjectRef =
+            AccessTools.FieldRefAccess<AI, ObjectBase>("_baseObject");
+
         internal static ObjectBase PushEmconProtection(ObjectBase unit)
         {
             ObjectBase previous = _emconProtectedUnit;
@@ -219,6 +222,88 @@ namespace CecMod.Patches
         [HarmonyFinalizer]
         [HarmonyPriority(Priority.Last)]
         private static Exception WeaponSystemLauncherOnUpdate_Finalizer(EmconScopeState __state, Exception __exception)
+        {
+            _emconProtectedUnit = __state.PrevUnit;
+            _allowEmconSyntheticDatalink = __state.PrevAllowSynth;
+            return __exception;
+        }
+
+        /// <summary>
+        /// Protects EMCON during <see cref="AI"/> autonomous weapon selection
+        /// (<c>SelectLauncherAmmoForAutoEngage</c>), which otherwise calls
+        /// <c>associatedSearchSensor.Enable(true, true)</c> when
+        /// <c>RequireVisionToEngage == AssociatedSensors</c> or evaluating SARH weapons.
+        /// </summary>
+        [HarmonyPatch(typeof(AI), "SelectLauncherAmmoForAutoEngage")]
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
+        private static void SelectLauncherAmmoForAutoEngage_Prefix(
+            AI __instance,
+            ObjectBase targetObject,
+            List<string> matchingAmmo,
+            out EmconScopeState __state)
+        {
+            __state = new EmconScopeState
+            {
+                PrevUnit = _emconProtectedUnit,
+                PrevAllowSynth = _allowEmconSyntheticDatalink
+            };
+            try
+            {
+                ObjectBase self = __instance != null ? AiBaseObjectRef(__instance) : null;
+                if (self == null
+                    || targetObject == null
+                    || !targetObject.isAirTarget()
+                    || !CecCapability.IsPlatformInAirRadarEmcon(self))
+                {
+                    return;
+                }
+
+                var profile = CecCapability.GetPlatformProfile(self);
+                bool hasSatcom = (profile.Datalinks & DatalinkStandard.SatcomUplink) != 0;
+                if (profile.CecTier != CecTier.Tier1 && !hasSatcom)
+                    return;
+
+                bool anyQualified = false;
+                bool allowOwnSynth = false;
+                if (matchingAmmo != null && matchingAmmo.Count > 0)
+                {
+                    for (int i = 0; i < matchingAmmo.Count; i++)
+                    {
+                        Ammunition ammo = self.getAmmunitionByName(matchingAmmo[i]);
+                        AmmunitionParameters ap = ammo?._ap;
+                        if (ap == null)
+                            continue;
+
+                        if (CecCapability.CanPerformLaunchOnRemote(self, ap, targetObject))
+                        {
+                            anyQualified = true;
+                            if (IsOwnDatalinkLor(self, ap, targetObject))
+                                allowOwnSynth = true;
+                        }
+                    }
+                }
+                else if (CecCapability.CanPerformLaunchOnRemote(self, null, targetObject))
+                {
+                    anyQualified = true;
+                }
+
+                if (anyQualified)
+                {
+                    _emconProtectedUnit = self;
+                    _allowEmconSyntheticDatalink = allowOwnSynth;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] SelectLauncherAmmoForAutoEngage_Prefix exception: {ex}");
+            }
+        }
+
+        [HarmonyPatch(typeof(AI), "SelectLauncherAmmoForAutoEngage")]
+        [HarmonyFinalizer]
+        [HarmonyPriority(Priority.Last)]
+        private static Exception SelectLauncherAmmoForAutoEngage_Finalizer(EmconScopeState __state, Exception __exception)
         {
             _emconProtectedUnit = __state.PrevUnit;
             _allowEmconSyntheticDatalink = __state.PrevAllowSynth;

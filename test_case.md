@@ -23,7 +23,7 @@
 | [TC-17](#tc-17--sunken-launcher-survivor-takeover) | E | Sunken Launcher Survivor Takeover | `PASS` | User confirmed passed in-game. |
 | [TC-18](#tc-18--consort-guidance-hull-raycast-check) | E | Consort Guidance Hull Raycast Check | `PASS` | User confirmed passed in-game. |
 | [TC-19](#tc-19--extendedguidance-on-vs-off-parity) | F | `ExtendedGuidance` ON vs. OFF Parity | `PASS` | User confirmed passed in-game (both `ExtendedGuidance` ON hybrid bridge mode and `ExtendedGuidance` OFF standalone mode verified cleanly with zero exceptions). |
-| [TC-20](#tc-20--autonomous-weapons-free--zero-map-clutter--f10-overlay) | F | Autonomous "Weapons Free" + Zero Map Clutter + F10 Overlay | `Pending` | — |
+| [TC-20](#tc-20--autonomous-weapons-free--zero-map-clutter--f10-overlay) | F | Autonomous "Weapons Free" + Zero Map Clutter + F10 Overlay | `PASS` | User confirmed passed in-game (protected `AI.SelectLauncherAmmoForAutoEngage` from breaking air-radar EMCON under `RequireVisionToEngage=AssociatedSensors` / SARH evaluation; added `Ctrl+F10` `AUTONOMOUS AI (WEAPONS FREE)` diagnostics, nearest air contact fallback, and `LogOutput.log` snapshot mirroring; verified Tier 1 EMCON auto-fire, Tier 2 hold-fire, clean map labels, and F10 overlay). |
 
 ---
 
@@ -283,7 +283,7 @@
 ---
 
 ### TC-20 — Autonomous "Weapons Free" + Zero Map Clutter + F10 Overlay
-- **Status**: `Pending`
+- **Status**: `PASS`
 - **Setup**: Tier 1 `DDG-51` (`EMCON`, `Weapons Free`) + `E-2D` (radar ON) vs. positively identified hostile aircraft; plus a Tier 2 ship (`EMCON`, `Weapons Free`).
 - **Steps**: Let AI run without manual orders; inspect map labels and press `Ctrl + F10`.
 - **Expected Result**:
@@ -291,4 +291,4 @@
   - Tier 2 ship holds fire until local radar lock.
   - Normal map contact labels remain **100% clean** (tags appear only on Attack Hover).
   - `Ctrl + F10` overlay shows accurate Tier, Datalinks, EMCON, Consort, and Hover Tag with zero log errors.
-- **Result / Notes**: _Not tested yet._
+- **Result / Notes**: User confirmed passed in-game (`2026-11-23`). Added `AI.SelectLauncherAmmoForAutoEngage` EMCON protection in `LaunchTimeCecPatch.cs` so Tier 1 `Weapons Free` auto-engagement does not wake local search radars under `RequireVisionToEngage=AssociatedSensors` or SARH checks, and added `AUTONOMOUS AI (WEAPONS FREE)` diagnostics, nearest air contact fallback, and `LogOutput.log` snapshot mirroring to `CecDebugOverlay.cs`.

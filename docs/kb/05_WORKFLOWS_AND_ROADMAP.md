@@ -38,8 +38,8 @@ The authoritative real-world capability datasets live in [data/cec_tables/](file
   `stage_workshop.ps1` copies `CecMod.dll`, `CecMod.pdb`, `workshop/_info.ini`, and `workshop/preview.jpg` (enforcing Sea Power's `< 1,000,000` byte Workshop preview limit) into `dist/CecMod` and `<GameDir>\Sea Power_Data\StreamingAssets\CecMod`.
 
 ## 3. In-Game Verification & Logging
-- Open Sea Power's Developer Menu (`F10`) and click **CEC Datalink** (or **CEC** on the top developer toolbar, or press `Ctrl + F10`) to open `CecDebugOverlay` and inspect live Shooter Tier, Datalinks, EMCON state, Consort reach, Hover Telemetry, and live Weapon State (`_engageState`, `Target Bearing` vs `Firing Arc`).
-- Inspect `BepInEx/LogOutput.log` for `[CEC]` runtime entries (`Launch-on-Remote`, `Handoff`, `Terminal-Illum Handoff`, `Detected ExtendedGuidance assembly`).
+- Open Sea Power's Developer Menu (`F10`) and click **CEC Datalink** (or **CEC** on the top developer toolbar, or press `Ctrl + F10`) to open `CecDebugOverlay` and inspect live Shooter Tier, Datalinks, EMCON state, Consort reach, Hover Telemetry, live Weapon State (`_engageState`, `Target Bearing` vs `Firing Arc`), and `AUTONOMOUS AI (WEAPONS FREE)` diagnostics.
+- Inspect `BepInEx/LogOutput.log` for `[CEC]` runtime entries (`Launch-on-Remote`, `Handoff`, `Terminal-Illum Handoff`, `Detected ExtendedGuidance assembly`) as well as snapshots mirrored from clicking `"Log Snapshot to F10 Event Log"`.
 
 ## 4. Roadmap & Active Specs
 - **Current Release (`v0.4.1`)**: 4-Tier CEC qualification engine, 10x10 datalink matrix, Project Mountain Top Forward Pass SARH, ship-to-ship SATCOM reach, full `ExtendedGuidance` pre-launch/mid-course/terminal compatibility bridge, contextual hover telemetry, and `CecDebugOverlay`.
