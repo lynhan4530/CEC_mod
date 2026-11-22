@@ -4,6 +4,9 @@ All notable changes to **Sea Power CEC (`CecMod`)** are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Added 7 missing Pacific 2027 (`3820272150`) PLA radar entries (`KJ-3000 AESA (P2027)`, `LJG-XX-054B-S (P2027)`, `LJQ-368 054B (P2027)`, `Type 346 (P2027)`, `Type 346A (P2027)`, `Type 346B (P2027)`, `Type 382 (P2027)`), populated `PlaJoint` on `KLC-500` / `KLC-500 (P2027)` / `KLC-600` / `KLC-600 (P2027)` / `KLC-600_low-band_mode`, and added `PlanHhq9` to `LJG-346 (P2027)` in `data/cec_tables/05_Radars.csv`, regenerating `CecMod/CecDataTables.g.cs` (`TC-04`).
+
 ### Fixed
 - Added Own-Ship Terminal Illumination CEC Launch-on-Remote (LOR), unlocked OTH pursuit/attack cursors, and cleaned up AWACS hover naming (`TC-07`):
   - Implemented `CecCapability.FindOwnShipTerminalIlluminatorForLor` / `HasOwnShipTerminalIlluminationForLor` for Tier 1 ships firing SARH+Datalink missiles (`RIM-66M-5`, etc.) on AWACS CEC tracks when no forward consort illuminator covers the target: uses Sea Power's analytical intercept time (`Missile.CalculateMissileInterceptTimeAnalytical`), horizontal-only velocity projection at observed `VisibleAltitude`, and terrain-aware `RadarCalculator.getRadarHorizon` across the terminal illumination window (`tIllumStart` through `tIntercept`).

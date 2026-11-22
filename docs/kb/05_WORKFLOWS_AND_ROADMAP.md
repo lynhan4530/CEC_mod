@@ -8,7 +8,7 @@ The authoritative real-world capability datasets live in [data/cec_tables/](file
 - `02_Datalink_Compatibility_Matrix.csv` — 10x10 standard-to-standard interaction matrix
 - `03_Ships.csv` — 344 ships
 - `04_Aircraft.csv` — 134 aircraft
-- `05_Radars.csv` — 287 radars
+- `05_Radars.csv` — 294 radars
 - `06_Missiles.csv` — 232 missiles
 
 ### Workflow

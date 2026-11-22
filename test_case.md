@@ -7,7 +7,7 @@
 | [TC-01](#tc-01--air-to-air-emcon-launch-on-remote-nifc-ca) | A | Air-to-Air EMCON Launch-on-Remote (NIFC-CA) | `PASS` | User confirmed working in-game. |
 | [TC-02](#tc-02--ship-to-air-oth-launch-on-remote-arh--awacs) | A | Ship-to-Air OTH Launch-on-Remote (ARH + AWACS) | `PASS` | User confirmed passed in-game (18 modern USN Aegis hulls including `usn_ddg_burke_f3_concept` upgraded to Tier 1 `USG-2 CEC`; cyan `CEC Track` hover and OTH launch verified; `EgBridge` now gates `ExtendedGuidance.Runtime.RemoteLaunch` on air targets). |
 | [TC-03](#tc-03--multi-missile-salvo-channel-expansion-32-ch-check) | A | Multi-Missile Salvo Channel Expansion (32-Ch Check) | `PASS` | User confirmed passed in-game. |
-| [TC-04](#tc-04--pla-a-shoot-b-guide-jsidls) | A | PLA "A-Shoot-B-Guide" (JSIDLS) | `PASS (Note)` | Cooperative JSIDLS guidance from `KJ-600` confirmed via `ExtendedGuidance` hint on follow-up `F-16` test near ship; `KJ-600` did not detect `Tu-95RT` at `77.6 nm` inside its radar ring. |
+| [TC-04](#tc-04--pla-a-shoot-b-guide-jsidls) | A | PLA "A-Shoot-B-Guide" (JSIDLS) | `PASS` | User confirmed passed in-game (added 7 Pacific 2027 PLA radars incl. Type 346/346A/346B (P2027) & KJ-3000 AESA (P2027), populated `PlaJoint` on KLC-500/600 variants & `PlanHhq9` on LJG-346 (P2027); verified `J-16` `PL-15` & `Type 052D` `HHQ-9B/C` LOR via `KJ-600`; `Type 055 + KJ-600` blindness traced to upstream `ExtendedGuidance` v0.10.33 `CaptureNoiseEmitter` friendly/OFF-ECM bug on `RJZ-XXX_ECM`). |
 | [TC-05](#tc-05--tier-1-link-16-upgrade-euro--allied) | A | Tier 1 Link 16 Upgrade (Euro / Allied) | `PASS` | User confirmed passed in-game. |
 | [TC-06](#tc-06--sarh-forward-pass-with-consort-illuminator) | B | SARH Forward Pass with Consort Illuminator | `PASS` | User confirmed passed in-game (`DDG-78 Porter` stays EMCON while forward consort `DDG-75 Donald Cook` guides/illuminates `RIM-66M-5`; keep follow-up note on base `DDG-51` CSV variants). |
 | [TC-07](#tc-07--sarh-blocked-when-only-awacs-sees-target) | B | SARH Own-Ship Terminal LOR & Below-Horizon Block (`AWACS`-Only Track) | `PASS` | User confirmed passed in-game (Own-Ship Terminal Illumination CEC LOR fires Tier 1 SARH+datalink missiles OTH on AWACS track once predicted terminal intercept enters own CW horizon; permanently below-horizon targets stay blocked with yellow `Below own CW horizon at intercept` hint while keeping attack cursor unlocked; fixed duplicate `E-2D VAW-113` unit name). |
@@ -68,16 +68,18 @@
 ---
 
 ### TC-04 — PLA "A-Shoot-B-Guide" (JSIDLS)
-- **Status**: `PASS (Note)`
+- **Status**: `PASS`
 - **Setup**: `Type 055` / `Type 052D` (`HHQ-9B`, EMCON) or `J-20` / `J-16` (`PL-15`/`PL-17`, EMCON) + `KJ-500` / `KJ-600 (P2027)` (radar ON) vs. distant air target.
 - **Steps**: Order shooter to fire while radar OFF.
 - **Expected Result**:
   - Hover shows **Cyan** `CEC Track` with `JSIDLS`.
   - Shooter fires in EMCON; `KJ-500`/`KJ-600` guides mid-course.
 - **Result / Notes**:
-  - Tested on `2026-11-22` (see `media_1795293194655_d3e1151b.jpg` & `media_1795293255282_fbc684f1.jpg`) with `#1001` Type 055 `Zunyi (107)`, `#1002` `J-16` (`29,998 ft`), and `#1003 (AEW&C)` `KJ-600` (`30,011 ft`) vs. `Tu-95RT 169th GAP` (`77.6 nm` from `KJ-600`, `78.6 nm` from `Zunyi (107)`, `129.0 nm` from `J-16`).
-  - **Passed verification**: Testing directly with an `F-16` near the ship showed `ExtendedGuidance` guidance coming from `KJ-600`, confirming PLA AWACS cooperative guidance works.
-  - **Observed anomaly (investigate later)**: `KJ-600` (`30,011 ft`) had its radar emitting (large yellow range ring visible on tactical display), yet `Tu-95RT` did not appear as a detected contact at `77.6 nm` inside `KJ-600`'s radar ring. (Note user suspects a base/mod radar detection issue with `KJ-600`/Chinese AWACS.)
+  - **Resolution (`2026-11-22 / 2026-11-23`)**:
+    - Added 7 Pacific 2027 PLA radar entries (`KJ-3000 AESA (P2027)`, `LJG-XX-054B-S (P2027)`, `LJQ-368 054B (P2027)`, `Type 346 (P2027)`, `Type 346A (P2027)`, `Type 346B (P2027)`, `Type 382 (P2027)`), added `PlaJoint` to `KLC-500` / `KLC-500 (P2027)` / `KLC-600` / `KLC-600 (P2027)` / `KLC-600_low-band_mode`, and added `PlanHhq9` to `LJG-346 (P2027)` in `data/cec_tables/05_Radars.csv`, regenerating `CecMod/CecDataTables.g.cs`.
+    - Confirmed Launch-on-Remote via `KJ-600` (`KLC-600 (P2027)`) in `LogOutput.log` for both `J-16` (`plaaf_pl-15`) and `Type 052D Weinan (166)` (`plan_hhq-9c`, `plan_hhq-9b`) `[Tier1 -> Tier1]`.
+    - Root-caused the `Type 055 + KJ-600` radar-detection anomaly to an upstream bug in `ExtendedGuidance` v0.10.33 (`Euromod - Anchorchain Expansion Pack`, Workshop `3784474738`): `ExtendedGuidance.Runtime.CaptureNoiseEmitter` gathers all `SensorSystemECM` without filtering same `_taskforce` and applies `SelfScreenPower` without checking `sensor.IsOn.Value` or `sensor._baseObject == queryTarget` while `RadarConditional` passes `default(SensorRangeOptions)`. Friendly `Type 055`'s turned-OFF `RJZ-XXX_ECM` (`3000 kW`, `15 dB`, covers `UHF-Band`) thus drops `KJ-600`'s SNR by ~77.8 dB in sidelobes. User chose Option 2 (keep `CecMod` untouched for ECM and report upstream to Euromod).
+  - *Initial test (`2026-11-22`, `media_1795293194655_d3e1151b.jpg` & `media_1795293255282_fbc684f1.jpg`)*: `#1001` Type 055 `Zunyi (107)`, `#1002` `J-16` (`29,998 ft`), and `#1003 (AEW&C)` `KJ-600` (`30,011 ft`) vs. `Tu-95RT 169th GAP` (`77.6 nm` from `KJ-600`, `78.6 nm` from `Zunyi (107)`, `129.0 nm` from `J-16`). Direct `F-16` test near ship confirmed `ExtendedGuidance` guidance from `KJ-600`; `KJ-600` blindness when paired with `Type 055` traced above.
 
 ---
 
