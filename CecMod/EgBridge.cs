@@ -581,7 +581,8 @@ namespace CecMod
                 }
 
                 // 11. Gate ExtendedGuidance.Runtime.RemoteLaunch on air targets through CecMod's
-                //     4-tier Launch-on-Remote rules so Tier 2/3 platforms never bypass CEC gating.
+                //     4-tier Launch-on-Remote rules so Tier 2/3 platforms never bypass CEC gating,
+                //     and align ForecastRemoteIllumination with CecMod's own-ship terminal LOR check.
                 MethodInfo remoteLaunch = _runtimeType.GetMethod("RemoteLaunch", AllStatic);
                 if (remoteLaunch != null)
                 {
@@ -589,6 +590,15 @@ namespace CecMod
                         nameof(RemoteLaunch_Postfix),
                         AllStatic);
                     _harmony.Patch(remoteLaunch, postfix: new HarmonyMethod(postfix));
+                }
+
+                MethodInfo forecastIllum = _runtimeType.GetMethod("ForecastRemoteIllumination", AllStatic);
+                if (forecastIllum != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(ForecastRemoteIllumination_Postfix),
+                        AllStatic);
+                    _harmony.Patch(forecastIllum, postfix: new HarmonyMethod(postfix));
                 }
 
                 CecPlugin.Log.LogInfo("[CEC] ExtendedGuidance active — hybrid CEC + ExtendedGuidance realism bridge enabled.");
@@ -640,6 +650,20 @@ namespace CecMod
                 if (CecCapability.CanPerformLaunchOnRemote(host, ap, target))
                 {
                     __result = Mathf.Max(distToTarget + 50f, 25f);
+                    return;
+                }
+
+                if (__result < 20.669622f)
+                {
+                    float organic = CecCapability.GetLocalOrganicAirHorizonRange(host, target, options);
+                    if (organic >= 20.669622f)
+                    {
+                        if (distToTarget > 21f && !CecCapability.HasLocalRadarSight(host, target))
+                        {
+                            organic = Mathf.Min(organic, distToTarget - 1f);
+                        }
+                        __result = Mathf.Max(__result, organic);
+                    }
                 }
             }
             catch (Exception ex)
@@ -667,7 +691,8 @@ namespace CecMod
                     return;
                 }
 
-                if (CecCapability.CanPerformLaunchOnRemote(host, ammo._ap, target))
+                if (CecCapability.CanPerformLaunchOnRemote(host, ammo._ap, target)
+                    || CecCapability.GetLocalOrganicAirHorizonRange(host, target) >= 20.669622f)
                 {
                     __result = false;
                 }
@@ -697,7 +722,8 @@ namespace CecMod
                     return;
                 }
 
-                if (CecCapability.CanPerformLaunchOnRemote(host, ap, target))
+                if (CecCapability.CanPerformLaunchOnRemote(host, ap, target)
+                    || CecCapability.GetLocalOrganicAirHorizonRange(host, target) >= 20.669622f)
                 {
                     __result = false;
                 }
@@ -744,12 +770,29 @@ namespace CecMod
 
                 // Launcher is guiding on its own DatalinkCarrier (e.g. eu_AEGIS_BL9), but own-ship air radars
                 // are in EMCON or horizon-blocked (OTH). Allow consuming the cooperative taskforce track
-                // only if the platform and missile qualify for Launch-on-Remote.
-                if (!CecCapability.HasLocalRadarSight(launcher, target)
-                    && CecCapability.CanPerformLaunchOnRemote(launcher, ap, target))
+                // if the engagement qualifies for Launch-on-Remote, or if an in-flight mid-course missile
+                // still has a qualifying Tier 1/2 cooperative tracker (e.g. Own-Ship LOR).
+                if (!CecCapability.HasLocalRadarSight(launcher, target))
                 {
-                    guide = null;
-                    weapon = null;
+                    bool canUseSharedTrack = CecCapability.CanPerformLaunchOnRemote(launcher, ap, target);
+                    if (!canUseSharedTrack
+                        && m.isLaunched()
+                        && CecCapability.GetMissileProfile(ap).AllowMidCourseHandoff)
+                    {
+                        ObjectBase coop = CecCapability.FindBestTrackingCooperator(launcher, target);
+                        if (coop != null)
+                        {
+                            var tier = CecCapability.EvaluateInteraction(launcher, coop);
+                            canUseSharedTrack = tier != InteractionTier.Incompatible
+                                                && tier != InteractionTier.Tier3_TrackRelay;
+                        }
+                    }
+
+                    if (canUseSharedTrack)
+                    {
+                        guide = null;
+                        weapon = null;
+                    }
                 }
             }
             catch (Exception ex)
@@ -862,6 +905,7 @@ namespace CecMod
             WeaponSystem weapon,
             ObjectBase target,
             Ammunition ammo,
+            ObjectBase.SensorRangeOptions options,
             ref float __result)
         {
             try
@@ -880,6 +924,20 @@ namespace CecMod
                 if (CecCapability.CanPerformLaunchOnRemote(weapon._baseObject, ammo._ap, target))
                 {
                     __result = float.MaxValue;
+                    return;
+                }
+
+                float organicFcr = CecCapability.GetLocalOrganicFcrHorizonRange(weapon, ammo._ap, target, options);
+                if (organicFcr >= 20.669622f)
+                {
+                    float distToTarget = CecCapability.HorizontalDistance(
+                        weapon._baseObject.transform.position,
+                        target.transform.position);
+                    if (distToTarget > 21f && !CecCapability.HasLocalRadarSight(weapon._baseObject, target))
+                    {
+                        organicFcr = Mathf.Min(organicFcr, distToTarget - 1f);
+                    }
+                    __result = organicFcr;
                 }
             }
             catch (Exception ex)
@@ -1029,8 +1087,16 @@ namespace CecMod
                     SensorSystemRadar currentIllum = _stateIlluminatorRef(s);
                     if (currentIllum != null && currentIllum._baseObject != null)
                     {
+                        ObjectBase trueLauncher = m._weaponSystem?._baseObject ?? m._launchPlatform;
+                        bool allowOwnTerminalLor = trueLauncher != null
+                            && currentIllum._baseObject == trueLauncher
+                            && CecCapability.GetPlatformProfile(trueLauncher).CecTier == CecTier.Tier1
+                            && m.CurrentIntendedTargetObject != null
+                            && !CecCapability.HasForwardPassIlluminatorCoverage(trueLauncher, m._ap, m.CurrentIntendedTargetObject);
+
                         var tier = CecCapability.GetPlatformProfile(currentIllum._baseObject).CecTier;
-                        if ((tier == CecTier.Tier1 || tier == CecTier.Tier2)
+                        if (!allowOwnTerminalLor
+                            && (tier == CecTier.Tier1 || tier == CecTier.Tier2)
                             && CecCapability.IsPlatformInAirRadarEmcon(currentIllum._baseObject))
                         {
                             _releaseIlluminatorInvoker(null, s);
@@ -1077,6 +1143,35 @@ namespace CecMod
             catch (Exception ex)
             {
                 CecPlugin.Log.LogError($"[CEC] RemoteLaunch_Postfix exception: {ex}");
+            }
+        }
+
+        private static void ForecastRemoteIllumination_Postfix(
+            WeaponSystem weapon,
+            ObjectBase target,
+            AmmunitionParameters ap,
+            ref bool __result)
+        {
+            try
+            {
+                if (__result
+                    || !IsActive
+                    || weapon?._baseObject == null
+                    || target == null
+                    || !target.isAirTarget()
+                    || ap == null)
+                {
+                    return;
+                }
+
+                if (CecCapability.CanPerformLaunchOnRemote(weapon._baseObject, ap, target))
+                {
+                    __result = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] ForecastRemoteIllumination_Postfix exception: {ex}");
             }
         }
     }

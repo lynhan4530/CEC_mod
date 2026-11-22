@@ -224,19 +224,35 @@ namespace CecMod.Patches
 
                 SensorSystemRadar currentRadar = __instance._guidingRadarSystem;
                 ObjectBase launcher = __instance._launchPlatform;
+                bool allowLocalEmconDatalinkMidcourse = EgBridge.IsActive
+                    && isSarh
+                    && launcher != null
+                    && currentRadar != null
+                    && currentRadar._baseObject == launcher
+                    && CecCapability.GetPlatformProfile(launcher).CecTier == CecTier.Tier1
+                    && CecCapability.IsSyntheticDatalinkSensor(currentRadar)
+                    && EgBridge.IsDatalinkCarrier(currentRadar)
+                    && EgBridge.IsWaitingForTerminalIllumination(__instance)
+                    && !CecCapability.HasForwardPassIlluminatorCoverage(launcher, __instance._ap, target)
+                    && CecCapability.HasTrackingCooperatorForRemoteLaunch(launcher, target);
+
                 bool currentRadarDead = currentRadar == null
                                         || currentRadar.IsDestroyed
                                         || currentRadar.Inoperable.Value
                                         || !currentRadar.IsOn.Value
                                         || currentRadar._baseObject == null
                                         || currentRadar._baseObject.IsDestroyed
-                                        || (currentRadar._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(currentRadar._baseObject));
+                                        || (!allowLocalEmconDatalinkMidcourse
+                                            && currentRadar._baseObject != null
+                                            && CecCapability.IsPlatformInAirRadarEmcon(currentRadar._baseObject));
 
                 ObjectBase guidingHost = (!currentRadarDead && currentRadar._baseObject != null)
                     ? currentRadar._baseObject
                     : launcher;
 
-                bool guiderDead = guidingHost == null || guidingHost.IsDestroyed || CecCapability.IsPlatformInAirRadarEmcon(guidingHost);
+                bool guiderDead = guidingHost == null
+                    || guidingHost.IsDestroyed
+                    || (!allowLocalEmconDatalinkMidcourse && CecCapability.IsPlatformInAirRadarEmcon(guidingHost));
                 bool egStale = EgBridge.IsActive && EgBridge.IsDatalinkStaleOrLost(__instance);
 
                 // Under ExtendedGuidance, a SARH+Datalink missile flying mid-course on an operational

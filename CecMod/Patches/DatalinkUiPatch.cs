@@ -210,7 +210,7 @@ namespace CecMod.Patches
             }
 
             string shortModel = obj._obp?._shortName;
-            if (!string.IsNullOrEmpty(shortModel) && !name.StartsWith(shortModel, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(shortModel) && name.IndexOf(shortModel, StringComparison.OrdinalIgnoreCase) < 0)
             {
                 name = $"{shortModel} {name}".Trim();
             }

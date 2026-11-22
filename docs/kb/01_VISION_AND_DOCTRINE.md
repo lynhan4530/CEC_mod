@@ -9,7 +9,7 @@
 
 | Tier | Enum | Real-World Equivalent | Launch-on-Remote (OTH/EMCON) | Mid-Course Handoff / Rescue |
 |---|---|---|---|---|
-| **Tier 1** | `CecTier.Tier1` | Full CEC / NIFC-CA (`USG-2/3`), `TTNT`, `JSIDLS` ("A-Shoot-B-Guide") | **Allowed** (ARH blind OTH; SARH only with Forward Pass CW illuminator) | **Allowed** |
+| **Tier 1** | `CecTier.Tier1` | Full CEC / NIFC-CA (`USG-2/3`), `TTNT`, `JSIDLS` ("A-Shoot-B-Guide") | **Allowed** (ARH blind OTH; SARH with Forward Pass consort CW illuminator, or Own-Ship Terminal LOR when predicted terminal intercept enters own CW horizon) | **Allowed** |
 | **Tier 2** | `CecTier.Tier2` | Mid-Course Cooperative (`Link 16`, `HN-900`, `RuNaval / Fort-TVM`) | **Blocked** (local radar sight required to fire) | **Allowed** (consort rescue on EMCON turn-away, jamming, horizon loss, or sunk launcher) |
 | **Tier 3** | `CecTier.Tier3` | Local Guidance Only (`Link 11 / TADIL-A`, legacy systems) | **Blocked** | **Blocked** (100% self-contained local FCR from launch to impact; track relay only) |
 | **Tier 0** | `CecTier.Tier0` | Standalone (no datalink, IR / unguided munitions) | **Blocked** | **Blocked** |
@@ -55,9 +55,11 @@ Implemented in `CecCapability.CanPerformLaunchOnRemote`:
 - **Tier 1 ARH / IR / ARM / Command (`!IsSarhMissile && missileProfile.AllowLaunchOnRemote`)**:
   - Allowed blind OTH or in EMCON if **any** Tier 1 compatible cooperator in the taskforce tracks the target (`HasTrackingCooperatorForRemoteLaunch`).
   - **AWACS Scope**: AWACS radars (`IsAwacsRadar`) can only guide non-SARH missiles (`CanSensorGuideAmmo` returns `false` for AWACS on SARH), provided `CecTier` is Tier 1/2 and `ap._midCourseCorrection.AllowsLauncherGuidance` is true.
-- **Tier 2 SARH / TVM (`IsSarhMissile`) — Forward Pass (Project Mountain Top)**:
+- **Tier 2 SARH / TVM (`IsSarhMissile`) — Forward Pass (*Project Mountain Top*) & Own-Ship Terminal LOR**:
   - AWACS have zero CW illuminators and cannot illuminate SARH terminals.
-  - A Tier 1 shooter may Launch-on-Remote a SARH/TVM missile **only if** `HasForwardPassIlluminatorCoverage` finds a Tier 1 consort with a compatible physical targeting/CW illuminator (`SarhIllumFamily`: `UsNatoXBandCw`, `RuFortTvm`, `RuShtilCw`, `PlanHhq9`, `PlanHhq16`, `RuZaslonPesa`) that has free channels and current radar LOS (`RadarCanSee`) to the target.
+  - A Tier 1 shooter may Launch-on-Remote a SARH/TVM missile if:
+    1. **Forward Pass**: `HasForwardPassIlluminatorCoverage` finds a Tier 1 consort with a compatible physical targeting/CW illuminator (`SarhIllumFamily`: `UsNatoXBandCw`, `RuFortTvm`, `RuShtilCw`, `PlanHhq9`, `PlanHhq16`, `RuZaslonPesa`) that has free channels and current radar LOS (`RadarCanSee`) to the target; **OR**
+    2. **Own-Ship Terminal Illumination CEC LOR**: When firing a SARH+Datalink (`AllowsLauncherGuidance`) missile via a Tier 1 remote tracker (such as `E-2D`), `HasOwnShipTerminalIlluminationForLor` / `FindOwnShipTerminalIlluminatorForLor` predicts intercept time using Sea Power's analytical kinematic solver (`Missile.CalculateMissileInterceptTimeAnalytical`, horizontal-only velocity projection holding observed `VisibleAltitude`) and verifies via terrain-aware `RadarCalculator.getRadarHorizon` that an own-ship compatible CW illuminator will have LOS through both `tIllumStart` and `tIntercept`. If the target stays permanently below the shooter's CW horizon at intercept (with no forward consort), OTH firing is held while the attack cursor remains unlocked so the player can pursue/engage with own ship sensors.
 
 ## 5. Datalink Reach & Physics Invariants
 Implemented in `CecCapability.ArePlatformsInDatalinkReach`:
@@ -74,5 +76,5 @@ Implemented in `AttackingStateUpdateDisplayedRangePatch` (`RemoteEngagementPatch
 - Permanent map contact labels (`ContactInfoLine1..4`) are left untouched.
 - Telemetry is appended to `MapUnitViewModel.ContactMouseoverInfo` **only** during `AttackingState.UpdateDisplayedRange` when `!CecCapability.HasLocalRadarSight(shooter, target)`:
   - **Green** (`#81C784`): `Forward Pass: {shipName} [{radarName}]`
-  - **Cyan** (`#4FC3F7`): `CEC Track: {guiderName} [{protocol} | Tier 1]`
-  - **Yellow** (`#FFF176`): `Cued via {protocol} (Local radar lock required to fire)`
+  - **Cyan** (`#4FC3F7`): `CEC LOR: {trackerName} [{protocol} | Own {illumName} Terminal]` (Own-Ship Terminal LOR) or `CEC Track: {guiderName} [{protocol} | Tier 1]` (ARH blind OTH)
+  - **Yellow** (`#FFF176`): `Cued via {protocol}: {trackerName} (Below own CW horizon at intercept)` / `(Own radar/CW LOS required for SARH)` / `Cued via {protocol}: No CW illuminator LOS (Local radar lock required)` / `Cued via {protocol} (Local radar lock required to fire)` (attack cursor kept unlocked with organic horizon fallback so the player can pursue/engage with own ship sensors)

@@ -10,7 +10,7 @@
 | [TC-04](#tc-04--pla-a-shoot-b-guide-jsidls) | A | PLA "A-Shoot-B-Guide" (JSIDLS) | `PASS (Note)` | Cooperative JSIDLS guidance from `KJ-600` confirmed via `ExtendedGuidance` hint on follow-up `F-16` test near ship; `KJ-600` did not detect `Tu-95RT` at `77.6 nm` inside its radar ring. |
 | [TC-05](#tc-05--tier-1-link-16-upgrade-euro--allied) | A | Tier 1 Link 16 Upgrade (Euro / Allied) | `PASS` | User confirmed passed in-game. |
 | [TC-06](#tc-06--sarh-forward-pass-with-consort-illuminator) | B | SARH Forward Pass with Consort Illuminator | `PASS` | User confirmed passed in-game (`DDG-78 Porter` stays EMCON while forward consort `DDG-75 Donald Cook` guides/illuminates `RIM-66M-5`; keep follow-up note on base `DDG-51` CSV variants). |
-| [TC-07](#tc-07--sarh-blocked-when-only-awacs-sees-target) | B | SARH Blocked When Only AWACS Sees Target | `PASS (Needs Enhancement)` | SARH (`RIM-66M-5`) properly blocked when only AWACS (`VAW-113`) tracks target (`Sensor Range: 0/68Nmi`, `Can't See Target`); user flagged hover UI hint (`Cued via USG-2/3 CEC (Local radar lock required to fire)`) for review/refinement. |
+| [TC-07](#tc-07--sarh-blocked-when-only-awacs-sees-target) | B | SARH Own-Ship Terminal LOR & Below-Horizon Block (`AWACS`-Only Track) | `PASS` | User confirmed passed in-game (Own-Ship Terminal Illumination CEC LOR fires Tier 1 SARH+datalink missiles OTH on AWACS track once predicted terminal intercept enters own CW horizon; permanently below-horizon targets stay blocked with yellow `Below own CW horizon at intercept` hint while keeping attack cursor unlocked; fixed duplicate `E-2D VAW-113` unit name). |
 | [TC-08](#tc-08--sarh-family-isolation-no-cross-band-illumination) | B | SARH Family Isolation (No Cross-Band Illumination) | `PASS` | User confirmed passed in-game. |
 | [TC-09](#tc-09--tier-2-awacs-e-3a-blocks-launch-on-remote) | C | Tier 2 AWACS (`E-3A`) Blocks Launch-on-Remote | `PASS` | User confirmed passed in-game. |
 | [TC-10](#tc-10--tier-2-link-16-mid-course-rescue-shoot--crankcold) | C | Tier 2 Link 16 Mid-Course Rescue (Shoot & Crank/Cold) | `PASS` | User confirmed passed in-game. |
@@ -111,16 +111,15 @@
 ---
 
 ### TC-07 — SARH Blocked When Only AWACS Sees Target
-- **Status**: `PASS (Needs Enhancement)`
+- **Status**: `PASS`
 - **Setup**: `DDG-51` (`SM-2MR`, OTH/EMCON) + `E-2D Hawkeye` (radar ON, tracking target), **no** forward consort with CW illuminator.
-- **Steps**: Hover target with `SM-2`, try to fire.
+- **Steps**: Hover target with `SM-2` beyond own CW horizon (both far OTH and closing into terminal CW horizon) and engage.
 - **Expected Result**:
-  - Hover shows **Yellow**: `Cued via ... (Local radar lock required to fire)`.
-  - Launch-on-Remote is **blocked** (AWACS has no CW illuminator).
+  - **Below own CW horizon at intercept** (no forward consort): Hover shows **Yellow** `Cued via {protocol}: {AWACS} (Below own CW horizon at intercept)`; OTH firing is held, and attack cursor stays **unlocked** (real organic horizon shown) so the player can queue an engage/pursue order.
+  - **Closing into own CW horizon by terminal phase**: Hover shows **Cyan** `CEC LOR: {AWACS} [{protocol} | Own {Illum} Terminal]`; ship fires OTH on AWACS CEC track via mid-course datalink (`eu_AEGIS_BL5`) without local radar sight and illuminates with own `SPG-62` in terminal phase.
 - **Result / Notes**:
-  - Tested on `2026-11-22` with `DDG-78 Porter` (`#1001`, `RIM-66M-5`) + `#1002 (AEW&C) VAW-113` (`30,000 ft`) vs. `#7001` (`70.22 nm`, `3,922 ft`) (see `media_1795295410634_32cf8c55.jpg`).
-  - **Engagement behavior**: SARH Launch-on-Remote is properly blocked (`Sensor Range: 0/68Nmi`, `Can't See Target`).
-  - **UI Note**: Hover shows yellow `Cued via USG-2/3 CEC (Local radar lock required to fire)` — user noted this UI hint looks off/incorrect and needs review later (e.g., clarifying AWACS cannot illuminate SARH rather than saying "Cued via USG-2/3 CEC").
+  - **Re-test after fix (`2026-11-22`)**: User confirmed passed in-game (`DDG-78 Porter` + `E-2D VAW-113` vs. low bomber at `446–482 ft`): held fire at `86.83 nm` with unlocked engage order (`Target too far`) and yellow `Cued via USG-2/3 CEC: E-2D VAW-113 (Below own CW horizon at intercept)`, then launched `RIM-66M-5` (`#36` / map `#1003`) via Own-Ship Terminal LOR around `~41–43 nm` (beyond `DDG-78`'s `~35.4–36.3 nm` `SPG-62` horizon) and completed own-ship terminal illumination; duplicate `VAW-113 E-2D VAW-113` naming also fixed.
+  - *Previous pre-fix run (`2026-11-22`, `media_1795295410634_32cf8c55.jpg`)*: `DDG-78 Porter` (`#1001`, `RIM-66M-5`) + `#1002 (AEW&C) VAW-113` (`30,000 ft`) vs. `#7001` (`70.22 nm`, `3,922 ft`) blocked SARH LOR with `Sensor Range: 0/68Nmi` (`Can't See Target`) and yellow `Cued via USG-2/3 CEC (Local radar lock required to fire)`.
 
 ---
 

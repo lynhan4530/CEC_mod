@@ -19,10 +19,22 @@ namespace CecMod.Patches
             public List<SensorSystemRadar> OffLocalRadars;
             public bool WasEmcon;
             public ObjectBase PreviousProtectedUnit;
+            public bool PreviousAllowSyntheticDatalink;
+        }
+
+        private struct EmconScopeState
+        {
+            public ObjectBase PrevUnit;
+            public bool PrevAllowSynth;
         }
 
         [ThreadStatic]
         private static ObjectBase _emconProtectedUnit;
+
+        [ThreadStatic]
+        private static bool _allowEmconSyntheticDatalink;
+
+        internal static bool AllowEmconSyntheticDatalink => _allowEmconSyntheticDatalink;
 
         private static readonly AccessTools.FieldRef<WeaponSystem, float> HorizonRangeRef =
             AccessTools.FieldRefAccess<WeaponSystem, float>("_horizonRange");
@@ -40,10 +52,30 @@ namespace CecMod.Patches
             _emconProtectedUnit = previous;
         }
 
+        internal static void PopEmconProtection(ObjectBase previousUnit, bool previousAllowSyntheticDatalink)
+        {
+            _emconProtectedUnit = previousUnit;
+            _allowEmconSyntheticDatalink = previousAllowSyntheticDatalink;
+        }
+
+        private static bool IsOwnDatalinkLor(ObjectBase self, AmmunitionParameters ap, ObjectBase target)
+        {
+            return EgBridge.IsActive
+                && self != null
+                && ap != null
+                && target != null
+                && CecCapability.IsSarhMissile(ap)
+                && ap._midCourseCorrection != null
+                && ap._midCourseCorrection.IsDatalink
+                && !CecCapability.HasForwardPassIlluminatorCoverage(self, ap, target)
+                && CecCapability.HasOwnShipTerminalIlluminationForLor(self, ap, target);
+        }
+
         /// <summary>
         /// Blocks asynchronous local radar auto-enable requests (<c>turnOffAfterEngage == true</c>)
         /// while evaluating or launching a qualified CEC Launch-on-Remote / Forward Pass engagement
-        /// from an EMCON platform.
+        /// from an EMCON platform, while permitting own-ship synthetic mid-course datalink carriers
+        /// during Own-Ship Terminal LOR.
         /// </summary>
         [HarmonyPatch(typeof(SensorSystem), nameof(SensorSystem.Enable))]
         [HarmonyPrefix]
@@ -56,6 +88,12 @@ namespace CecMod.Patches
                 && radar._baseObject == _emconProtectedUnit
                 && !radar.IsOn.Value)
             {
+                if (_allowEmconSyntheticDatalink
+                    && CecCapability.IsSyntheticDatalinkSensor(radar)
+                    && EgBridge.IsDatalinkCarrier(radar))
+                {
+                    return true;
+                }
                 return false;
             }
             return true;
@@ -68,9 +106,13 @@ namespace CecMod.Patches
         [HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.HandleEngageTasks))]
         [HarmonyPrefix]
         [HarmonyPriority(Priority.First)]
-        private static void HandleEngageTasks_Prefix(ObjectBase __instance, out ObjectBase __state)
+        private static void HandleEngageTasks_Prefix(ObjectBase __instance, out EmconScopeState __state)
         {
-            __state = _emconProtectedUnit;
+            __state = new EmconScopeState
+            {
+                PrevUnit = _emconProtectedUnit,
+                PrevAllowSynth = _allowEmconSyntheticDatalink
+            };
             try
             {
                 if (__instance == null
@@ -87,6 +129,7 @@ namespace CecMod.Patches
                     return;
 
                 bool anyQualified = false;
+                bool allowOwnSynth = false;
                 var tasks = __instance._currentEngageTasks;
                 for (int i = 0; i < tasks.Count; i++)
                 {
@@ -107,10 +150,15 @@ namespace CecMod.Patches
                         return;
 
                     anyQualified = true;
+                    if (IsOwnDatalinkLor(__instance, ap, target))
+                        allowOwnSynth = true;
                 }
 
                 if (anyQualified)
+                {
                     _emconProtectedUnit = __instance;
+                    _allowEmconSyntheticDatalink = allowOwnSynth;
+                }
             }
             catch (Exception ex)
             {
@@ -121,9 +169,10 @@ namespace CecMod.Patches
         [HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.HandleEngageTasks))]
         [HarmonyFinalizer]
         [HarmonyPriority(Priority.Last)]
-        private static Exception HandleEngageTasks_Finalizer(ObjectBase __state, Exception __exception)
+        private static Exception HandleEngageTasks_Finalizer(EmconScopeState __state, Exception __exception)
         {
-            _emconProtectedUnit = __state;
+            _emconProtectedUnit = __state.PrevUnit;
+            _allowEmconSyntheticDatalink = __state.PrevAllowSynth;
             return __exception;
         }
 
@@ -134,9 +183,13 @@ namespace CecMod.Patches
         [HarmonyPatch(typeof(WeaponSystemLauncher), nameof(WeaponSystemLauncher.OnUpdate))]
         [HarmonyPrefix]
         [HarmonyPriority(Priority.First)]
-        private static void WeaponSystemLauncherOnUpdate_Prefix(WeaponSystemLauncher __instance, out ObjectBase __state)
+        private static void WeaponSystemLauncherOnUpdate_Prefix(WeaponSystemLauncher __instance, out EmconScopeState __state)
         {
-            __state = _emconProtectedUnit;
+            __state = new EmconScopeState
+            {
+                PrevUnit = _emconProtectedUnit,
+                PrevAllowSynth = _allowEmconSyntheticDatalink
+            };
             try
             {
                 if (__instance == null
@@ -153,6 +206,7 @@ namespace CecMod.Patches
                 if (ap != null && CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, __instance._targetObject))
                 {
                     _emconProtectedUnit = __instance._baseObject;
+                    _allowEmconSyntheticDatalink = IsOwnDatalinkLor(__instance._baseObject, ap, __instance._targetObject);
                 }
             }
             catch (Exception ex)
@@ -164,9 +218,10 @@ namespace CecMod.Patches
         [HarmonyPatch(typeof(WeaponSystemLauncher), nameof(WeaponSystemLauncher.OnUpdate))]
         [HarmonyFinalizer]
         [HarmonyPriority(Priority.Last)]
-        private static Exception WeaponSystemLauncherOnUpdate_Finalizer(ObjectBase __state, Exception __exception)
+        private static Exception WeaponSystemLauncherOnUpdate_Finalizer(EmconScopeState __state, Exception __exception)
         {
-            _emconProtectedUnit = __state;
+            _emconProtectedUnit = __state.PrevUnit;
+            _allowEmconSyntheticDatalink = __state.PrevAllowSynth;
             return __exception;
         }
 
@@ -218,6 +273,7 @@ namespace CecMod.Patches
                 if (__instance == null || targetObject == null || __instance._vwp == null)
                 {
                     __state.PreviousProtectedUnit = _emconProtectedUnit;
+                    __state.PreviousAllowSyntheticDatalink = _allowEmconSyntheticDatalink;
                     return;
                 }
 
@@ -225,6 +281,7 @@ namespace CecMod.Patches
                 if (self == null)
                 {
                     __state.PreviousProtectedUnit = _emconProtectedUnit;
+                    __state.PreviousAllowSyntheticDatalink = _allowEmconSyntheticDatalink;
                     return;
                 }
 
@@ -235,6 +292,7 @@ namespace CecMod.Patches
             catch (Exception ex)
             {
                 __state.PreviousProtectedUnit = _emconProtectedUnit;
+                __state.PreviousAllowSyntheticDatalink = _allowEmconSyntheticDatalink;
                 CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidance_Prefix exception: {ex}");
             }
         }
@@ -283,7 +341,7 @@ namespace CecMod.Patches
         [HarmonyFinalizer]
         private static Exception ActivatePreLaunchGuidance_Finalizer(PreLaunchEmconState __state, Exception __exception)
         {
-            PopEmconProtection(__state.PreviousProtectedUnit);
+            PopEmconProtection(__state.PreviousProtectedUnit, __state.PreviousAllowSyntheticDatalink);
             return __exception;
         }
 
@@ -301,6 +359,7 @@ namespace CecMod.Patches
                 if (__instance == null || targetObject == null || __instance._vwp == null)
                 {
                     __state.PreviousProtectedUnit = _emconProtectedUnit;
+                    __state.PreviousAllowSyntheticDatalink = _allowEmconSyntheticDatalink;
                     return;
                 }
 
@@ -308,6 +367,7 @@ namespace CecMod.Patches
                 if (self == null)
                 {
                     __state.PreviousProtectedUnit = _emconProtectedUnit;
+                    __state.PreviousAllowSyntheticDatalink = _allowEmconSyntheticDatalink;
                     return;
                 }
 
@@ -318,6 +378,7 @@ namespace CecMod.Patches
             catch (Exception ex)
             {
                 __state.PreviousProtectedUnit = _emconProtectedUnit;
+                __state.PreviousAllowSyntheticDatalink = _allowEmconSyntheticDatalink;
                 CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidanceHardpoint_Prefix exception: {ex}");
             }
         }
@@ -359,7 +420,7 @@ namespace CecMod.Patches
         [HarmonyFinalizer]
         private static Exception ActivatePreLaunchGuidanceHardpoint_Finalizer(PreLaunchEmconState __state, Exception __exception)
         {
-            PopEmconProtection(__state.PreviousProtectedUnit);
+            PopEmconProtection(__state.PreviousProtectedUnit, __state.PreviousAllowSyntheticDatalink);
             return __exception;
         }
 
@@ -371,6 +432,7 @@ namespace CecMod.Patches
         {
             var state = default(PreLaunchEmconState);
             state.PreviousProtectedUnit = _emconProtectedUnit;
+            state.PreviousAllowSyntheticDatalink = _allowEmconSyntheticDatalink;
 
             if (ap == null)
                 ap = CecCapability.ResolveWeaponAmmunitionParameters(ws);
@@ -384,7 +446,9 @@ namespace CecMod.Patches
                 return state;
             }
 
+            bool allowOwnSynth = IsOwnDatalinkLor(self, ap, targetObject);
             _emconProtectedUnit = self;
+            _allowEmconSyntheticDatalink = allowOwnSynth;
 
             var offLocalRadars = new List<SensorSystemRadar>();
             if (ws?._vwp?._associatedSensors != null)
@@ -395,6 +459,7 @@ namespace CecMod.Patches
                         && radar._baseObject == self
                         && !radar.IsOn.Value
                         && !radar._wasSetOn
+                        && !(allowOwnSynth && CecCapability.IsSyntheticDatalinkSensor(radar) && EgBridge.IsDatalinkCarrier(radar))
                         && !offLocalRadars.Contains(radar))
                     {
                         offLocalRadars.Add(radar);
@@ -410,6 +475,7 @@ namespace CecMod.Patches
                         && radar._baseObject == self
                         && !radar.IsOn.Value
                         && !radar._wasSetOn
+                        && !(allowOwnSynth && CecCapability.IsSyntheticDatalinkSensor(radar) && EgBridge.IsDatalinkCarrier(radar))
                         && !offLocalRadars.Contains(radar))
                     {
                         offLocalRadars.Add(radar);
@@ -428,7 +494,7 @@ namespace CecMod.Patches
 
         internal static void RestorePreLaunchEmconState(ObjectBase self, PreLaunchEmconState state)
         {
-            PopEmconProtection(state.PreviousProtectedUnit);
+            PopEmconProtection(state.PreviousProtectedUnit, state.PreviousAllowSyntheticDatalink);
 
             if (state.OffLocalRadars != null)
             {
@@ -466,16 +532,27 @@ namespace CecMod.Patches
             bool isSarh = ap != null && CecCapability.IsSarhMissile(ap);
             bool hasMccDatalink = ap?._midCourseCorrection != null && ap._midCourseCorrection.IsDatalink;
             bool preferDatalinkCarrier = isSarh && EgBridge.IsActive && hasMccDatalink;
+            bool allowOwnDatalinkLor = preferDatalinkCarrier
+                && self != null
+                && !CecCapability.HasForwardPassIlluminatorCoverage(self, ap, targetObject)
+                && CecCapability.HasOwnShipTerminalIlluminationForLor(self, ap, targetObject);
 
             // Check if any currently ON associated sensor already has _preLaunchTargetObject == targetObject.
-            // If the shooter is in air radar EMCON, clear local pre-launch locks so local dishes do not slew.
+            // If the shooter is in air radar EMCON, clear local pre-launch locks so local dishes do not slew
+            // (except the ship's own DatalinkCarrier during Own-Ship Terminal LOR).
             bool alreadyAligned = false;
             foreach (SensorSystem sensor in instance._vwp._associatedSensors)
             {
                 if (sensor == null)
                     continue;
 
-                if (selfInEmcon && sensor._baseObject == self)
+                bool isAllowedOwnDatalink = allowOwnDatalinkLor
+                    && sensor._baseObject == self
+                    && sensor is SensorSystemRadar dlCheck
+                    && CecCapability.IsSyntheticDatalinkSensor(dlCheck)
+                    && EgBridge.IsDatalinkCarrier(dlCheck);
+
+                if (selfInEmcon && sensor._baseObject == self && !isAllowedOwnDatalink)
                 {
                     if (sensor._preLaunchTargetObject == targetObject)
                         sensor._preLaunchTargetObject = null;
@@ -493,7 +570,7 @@ namespace CecMod.Patches
 
                 if (sensor is SensorSystemRadar ssr)
                 {
-                    if (ssr._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(ssr._baseObject))
+                    if (!isAllowedOwnDatalink && ssr._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(ssr._baseObject))
                         continue;
 
                     if (isSarh)
@@ -521,11 +598,19 @@ namespace CecMod.Patches
 
             foreach (SensorSystem sensor in instance._vwp._associatedSensors)
             {
-                if (!(sensor is SensorSystemRadar radar) || !radar.IsOn.Value || radar.IsDestroyed || radar.Inoperable.Value)
+                if (!(sensor is SensorSystemRadar radar) || radar.IsDestroyed || radar.Inoperable.Value)
                     continue;
-                if (selfInEmcon && radar._baseObject == self)
+                bool isAllowedOwnDatalink = allowOwnDatalinkLor
+                    && radar._baseObject == self
+                    && CecCapability.IsSyntheticDatalinkSensor(radar)
+                    && EgBridge.IsDatalinkCarrier(radar);
+
+                if (!radar.IsOn.Value && !isAllowedOwnDatalink)
                     continue;
-                if (radar._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(radar._baseObject))
+
+                if (!isAllowedOwnDatalink && selfInEmcon && radar._baseObject == self)
+                    continue;
+                if (!isAllowedOwnDatalink && radar._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(radar._baseObject))
                     continue;
 
                 int priority = 1;
@@ -534,7 +619,7 @@ namespace CecMod.Patches
                     if (preferDatalinkCarrier)
                     {
                         if (EgBridge.IsDatalinkCarrier(radar))
-                            priority = 2;
+                            priority = isAllowedOwnDatalink ? 2 : 3;
                         else if (CecCapability.CanRadarIlluminateSarh(radar, ap, self) && EgBridge.CanEgIlluminate(radar))
                             priority = 1;
                         else
@@ -555,7 +640,7 @@ namespace CecMod.Patches
                     continue;
                 if (!radar.HasFreeTargetChannels(targetObject) || !radar.HasFreeWeaponChannels())
                     continue;
-                if (!CecCapability.RadarCanSee(radar, targetObject))
+                if (!isAllowedOwnDatalink && !CecCapability.RadarCanSee(radar, targetObject))
                     continue;
 
                 if (bestSensor == null || priority > bestPriority)
@@ -567,9 +652,15 @@ namespace CecMod.Patches
 
             if (bestSensor != null)
             {
-                bestSensor.SetPrelaunchObject(targetObject);
-                bestSensor._restPositionReached = false;
-                instance._sensorPreLaunchAligned = true;
+                if (!bestSensor.IsOn.Value)
+                    bestSensor.Enable(false, true);
+
+                if (bestSensor.IsOn.Value)
+                {
+                    bestSensor.SetPrelaunchObject(targetObject);
+                    bestSensor._restPositionReached = false;
+                    instance._sensorPreLaunchAligned = true;
+                }
             }
         }
 
@@ -662,9 +753,18 @@ namespace CecMod.Patches
                     && launcher?._sensorsToTurnOff != null
                     && launcher._sensorsToTurnOff.Contains(current);
                 bool launcherInEmcon = launcher != null && CecCapability.IsPlatformInAirRadarEmcon(launcher);
-                bool localGuiderDisallowed = currentIsLocal && (currentWasAutoEnabledFromEmcon || launcherInEmcon);
                 bool isSarh = CecCapability.IsSarhMissile(m._ap);
                 bool hasMccDatalink = m._ap._midCourseCorrection != null && m._ap._midCourseCorrection.IsDatalink;
+                bool allowOwnDatalinkLor = EgBridge.IsActive
+                    && isSarh
+                    && hasMccDatalink
+                    && currentIsLocal
+                    && current != null
+                    && CecCapability.IsSyntheticDatalinkSensor(current)
+                    && EgBridge.IsDatalinkCarrier(current)
+                    && !CecCapability.HasForwardPassIlluminatorCoverage(launcher, m._ap, target)
+                    && CecCapability.HasOwnShipTerminalIlluminationForLor(launcher, m._ap, target);
+                bool localGuiderDisallowed = currentIsLocal && (currentWasAutoEnabledFromEmcon || (launcherInEmcon && !allowOwnDatalinkLor));
                 bool currentHostInEmcon = current?._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(current._baseObject);
                 bool currentIsNonAirHelper = target.isAirTarget() && CecCapability.IsNonAirSearchHelperSensor(current);
 
@@ -674,13 +774,19 @@ namespace CecMod.Patches
                     && !current.Inoperable.Value
                     && current.IsOn.Value
                     && !localGuiderDisallowed
-                    && !currentHostInEmcon
+                    && (!currentHostInEmcon || allowOwnDatalinkLor)
                     && !currentIsNonAirHelper
                     && EgBridge.IsDatalinkCarrier(current)
                     && current.CanGuideAmmo(m._ap)
                     && CecCapability.RadarCanReachMissile(current, m))
                 {
-                    if (!currentIsLocal)
+                    if (allowOwnDatalinkLor && !CecCapability.HasLocalRadarSight(launcher, target))
+                    {
+                        CecPlugin.Log.LogInfo(
+                            $"[CEC] Launch-on-Remote (Own-Ship Terminal LOR): '{m.getObjectIniName()}' (#{m.UniqueID}) from '{launcher?.getName() ?? "?"}' " +
+                            $"using mid-course '{current._systemName}' for own-ship terminal illumination.");
+                    }
+                    else if (!currentIsLocal)
                     {
                         if (CecCapability.IsAwacsRadar(current) || CecCapability.IsCecMultifunctionRadar(current))
                             CecCapability.EnsureMidCourseChannels(current);

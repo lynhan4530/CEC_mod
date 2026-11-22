@@ -140,8 +140,15 @@ namespace CecMod.Patches
                 ObjectBase illumHost = illumRadar._baseObject;
                 if (illumHost != null)
                 {
+                    bool allowOwnTerminalLor = trueLauncher != null
+                        && illumHost == trueLauncher
+                        && CecCapability.GetPlatformProfile(trueLauncher).CecTier == CecTier.Tier1
+                        && illumMissile.CurrentIntendedTargetObject != null
+                        && !CecCapability.HasForwardPassIlluminatorCoverage(trueLauncher, effectiveAp, illumMissile.CurrentIntendedTargetObject);
+
                     var hostTier = CecCapability.GetPlatformProfile(illumHost).CecTier;
-                    if ((hostTier == CecTier.Tier1 || hostTier == CecTier.Tier2)
+                    if (!allowOwnTerminalLor
+                        && (hostTier == CecTier.Tier1 || hostTier == CecTier.Tier2)
                         && CecCapability.IsPlatformInAirRadarEmcon(illumHost))
                     {
                         __result = false;
@@ -574,6 +581,7 @@ namespace CecMod.Patches
         {
             __state = default;
             __state.PreviousProtectedUnit = LaunchTimeCecPatch.PushEmconProtection(null);
+            __state.PreviousAllowSyntheticDatalink = LaunchTimeCecPatch.AllowEmconSyntheticDatalink;
             try
             {
                 if (__instance == null
@@ -632,7 +640,7 @@ namespace CecMod.Patches
         [HarmonyFinalizer]
         private static Exception HasFreeGuidingSensors_Finalizer(LaunchTimeCecPatch.PreLaunchEmconState __state, Exception __exception)
         {
-            LaunchTimeCecPatch.PopEmconProtection(__state.PreviousProtectedUnit);
+            LaunchTimeCecPatch.PopEmconProtection(__state.PreviousProtectedUnit, __state.PreviousAllowSyntheticDatalink);
             return __exception;
         }
 
@@ -649,6 +657,7 @@ namespace CecMod.Patches
         {
             __state = default;
             __state.PreviousProtectedUnit = LaunchTimeCecPatch.PushEmconProtection(null);
+            __state.PreviousAllowSyntheticDatalink = LaunchTimeCecPatch.AllowEmconSyntheticDatalink;
             try
             {
                 if (__instance == null
@@ -705,7 +714,7 @@ namespace CecMod.Patches
         [HarmonyFinalizer]
         private static Exception HasFreeWeaponChannel_Finalizer(LaunchTimeCecPatch.PreLaunchEmconState __state, Exception __exception)
         {
-            LaunchTimeCecPatch.PopEmconProtection(__state.PreviousProtectedUnit);
+            LaunchTimeCecPatch.PopEmconProtection(__state.PreviousProtectedUnit, __state.PreviousAllowSyntheticDatalink);
             return __exception;
         }
 

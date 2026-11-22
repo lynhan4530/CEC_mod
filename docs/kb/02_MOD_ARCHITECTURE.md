@@ -11,7 +11,7 @@ All C# source lives in [CecMod/](file:///G:/Project/CEC_mod/CecMod) targeting `.
 | [AnchorChainEntry.cs](file:///G:/Project/CEC_mod/CecMod/AnchorChainEntry.cs) | `AnchorChainEntry : IAnchorChainMod` (`[ACPlugin]`). Checks `IsEnabledInModMenu()` and attaches `CecPlugin` to `Chainloader.ManagerObject`. |
 | [CecDataTables.g.cs](file:///G:/Project/CEC_mod/CecMod/CecDataTables.g.cs) | Auto-generated static lookup tables (1,240 lines) from `tools/generate_cec_tables.py`. Contains enums, profile classes, `Platforms` (478: 344 ships, 134 aircraft including `usn_fa-18e_blk3` & `usn_fa-18f_blk3c`), `Radars` (287), `Missiles` (232) + P2027 aliases, and `DatalinkMatrix` (10x10). |
 | [CecCapability.cs](file:///G:/Project/CEC_mod/CecMod/CecCapability.cs) | Core qualification, datalink resolution, horizon/EMCON physics, launch-time radar injection, ammo illuminator sync, handoff search, and UI formatters. |
-| [EgBridge.cs](file:///G:/Project/CEC_mod/CecMod/EgBridge.cs) | Zero-dependency reflection bridge + 14 runtime Harmony hooks into `ExtendedGuidance.dll` (`euromod.extended-guidance`), including `ExtendedGuidance.Runtime.Illuminator` scoping/EMCON release and `RemoteLaunch` air-target CEC gating. |
+| [EgBridge.cs](file:///G:/Project/CEC_mod/CecMod/EgBridge.cs) | Zero-dependency reflection bridge + 15 runtime Harmony hooks into `ExtendedGuidance.dll` (`euromod.extended-guidance`), including `ExtendedGuidance.Runtime.Illuminator` scoping/EMCON release, `ForecastRemoteIllumination` SARH Own-Ship LOR alignment, `RemoteLaunch` air-target CEC gating, and organic horizon fallback on planning/FCR hooks. |
 | [CecDebugOverlay.cs](file:///G:/Project/CEC_mod/CecMod/CecDebugOverlay.cs) | F10 Developer Menu (`DM`) integration and live diagnostic IMGUI overlay (`Ctrl+F10`, `DM.MenuWindow` `"CEC Datalink"`, `DM.DoToolbarWindow` `"CEC"`). |
 | [LaunchTimeCecPatch.cs](file:///G:/Project/CEC_mod/CecMod/Patches/LaunchTimeCecPatch.cs) | Replaces `CheckExternalRadarGuidance`; enforces EMCON protection across `SensorSystem.Enable`, `ObjectBase.HandleEngageTasks`, `WeaponSystemLauncher.OnUpdate`, `activatePreLaunchGuidance`, and `CheckTargetIsDetectableByFCR`; rebinds `ActivateNonLaserGuidanceSystem` on launch and syncs EG illuminators/logs for direct remote binds. |
 | [RemoteEngagementPatch.cs](file:///G:/Project/CEC_mod/CecMod/Patches/RemoteEngagementPatch.cs) | `AttackingStateUpdateDisplayedRangePatch` (hover telemetry) + `RemoteEngagementPatch` (`CanGuideAmmo` including `ActiveEgIlluminatorMissile` gating, pre-launch visibility/FCR/channel/aiming postfixes + EMCON-protected `HasFreeGuidingSensors` / `hasFreeWeaponChannel` hooks). |
@@ -26,9 +26,9 @@ All C# source lives in [CecMod/](file:///G:/Project/CEC_mod/CecMod) targeting `.
 2. **Pairwise Interaction & Flight Isolation**:
    - `ResolveBestDatalinkPair` / `EvaluateInteraction` — computes best `InteractionTier` across bitmask flags, handles `Tier1_IntraFlightOnly` (live `Formation` / `ActiveFormationLeader` checks in `IsSameFlightGroup`), cross-flight stealth gateway bridging & `GatewayRequired` (`TaskforceHasActiveGateway(tf, shooter, consort)`, which requires an airborne `Aircraft._isInFlight` gateway within radio reach of both peers via `IsGatewayInRadioReach` using `requireRadarOn: false`), and non-stealth Tier 1 Link 16 upgrades (excluding `Madl`/`Ifdl` platforms).
 3. **Range & Horizon Physics**:
-   - `ArePlatformsInDatalinkReach`, `DatalinkMastHeight`, `RadarCanSee` (range, `RadarCalculator.getRadarHorizon`, and FOV enforcement for `DirectedSearch` / non-AWACS aircraft radars), `RadarCanReachMissile`, `IsPlatformInAirRadarEmcon`, `IsPlatformInSurfaceRadarEmcon`, `HasLocalRadarSight` (skipping `IsSyntheticDatalinkSensor` and `IsNonAirSearchHelperSensor`).
+   - `ArePlatformsInDatalinkReach`, `DatalinkMastHeight`, `RadarCanSee` (range, `RadarCalculator.getRadarHorizon`, and FOV enforcement for `DirectedSearch` / non-AWACS aircraft radars), `RadarCanReachMissile`, `IsPlatformInAirRadarEmcon`, `IsPlatformInSurfaceRadarEmcon`, `HasLocalRadarSight` (skipping `IsSyntheticDatalinkSensor` and `IsNonAirSearchHelperSensor`), `GetLocalOrganicAirHorizonRange`, and `GetLocalOrganicFcrHorizonRange` (used to keep attack cursors unlocked when remote LOR is unavailable).
 4. **Strict 4-Tier Gating Engine**:
-   - `CanPerformLaunchOnRemote` -> dispatches to `HasTrackingCooperatorForRemoteLaunch` (Tier 1 ARH/IR/ARM/Command) or `HasForwardPassIlluminatorCoverage` (SARH/TVM).
+   - `CanPerformLaunchOnRemote` -> dispatches to `HasTrackingCooperatorForRemoteLaunch` (Tier 1 ARH/IR/ARM/Command), `HasForwardPassIlluminatorCoverage` (SARH/TVM), or `HasOwnShipTerminalIlluminationForLor` / `FindOwnShipTerminalIlluminatorForLor` (Tier 1 SARH+Datalink Own-Ship Terminal LOR: uses `Missile.CalculateMissileInterceptTimeAnalytical`, horizontal-only velocity projection at observed `VisibleAltitude`, and terrain-aware `getRadarHorizon` at both `tIllumStart` and `tIntercept`).
    - `CanRadarIlluminateSarh` strictly filters for physical SARH targeting/CW illuminators matching `RequiredSarhFamily` (excluding AWACS, synthetic datalinks, and `DirectedSearch` radars such as `SPY-1D(V) (P2027)`), while `ConsortHasIlluminatorForTarget` / `FindConsortIlluminatorForTarget` skip consorts in air-radar EMCON.
    - `CanPerformMidCourseHandoff` & `FindHandoffRadar(missile, requireTerminalIlluminator)` — picks the qualifying cooperator radar closest to `target` (enforcing `CanRadarIlluminateSarh` when terminal illumination is required).
 5. **Launch-Time Pool Injection & Sync**:
@@ -39,7 +39,7 @@ All C# source lives in [CecMod/](file:///G:/Project/CEC_mod/CecMod) targeting `.
 6. **Situational Awareness & Sensor Filtering**:
    - `CanSensorGuideAmmo`, `HasCooperativeAirTrack`, `HasCooperativeTrack`, `HasRemoteFcrCoverage`, `CooperatorSeesTarget` (skips EMCON cooperators for air targets, `IsSyntheticDatalinkSensor`, and `IsNonAirSearchHelperSensor`; checks Search/DirectedSearch/Targeting radars, organic `_spottedObjects`/`_detectedObjects`, standard `GetRange`, and unjammed `SensorRangeOptions` fallback to work around vanilla's self-screen jammer / HOJ noise bug). Also `ActivateNonLaserGuidanceSystem_Postfix` skips `IsNonAirSearchHelperSensor` on air-target launches.
 7. **Hover Telemetry & UI Formatters**:
-   - `FindBestTrackingCooperator` (ranks by `GetEffectiveInteractionRank`, then Tier 1 capability, then closest distance), `FindConsortIlluminatorForTarget`, `GetHoverTelemetryTag`, `FormatMissileDatalinkUiString`.
+   - `FindBestTrackingCooperator` (ranks by `GetEffectiveInteractionRank`, then Tier 1 capability, then closest distance), `FindConsortIlluminatorForTarget`, `GetHoverTelemetryTag` (Green Forward Pass, Cyan Own-Ship LOR / Blind OTH, Yellow below-horizon / SARH / Tier 2 cues), `FormatMissileDatalinkUiString`, paired with `DatalinkUiPatch.FormatCleanUnitName` substring model-prefix deduplication (`IndexOf`).
 
 ## 3. Harmony Patch Flow Across the Weapon Lifecycle
 
@@ -50,11 +50,12 @@ Pre-Launch Targeting & Hover:
   ObjectBase.GetMaxRangeForFCR / GetSensorRange [Postfix] -> RefreshAndSyncConsortRadars + CanPerformLaunchOnRemote
   WeaponSystem.CanSearchSensorsSeeTarget / IsVisionRequirementMet / FCRDetectionRange / isAimedAtObject [Postfix]
   WeaponSystem.CheckTargetIsDetectableByFCR [Prefix] -> Checks radar.CanGuideAmmo + CanPerformLaunchOnRemote
+  ExtendedGuidance.Runtime.ForecastRemoteIllumination [Postfix] -> Aligns SARH remote-illumination forecast with CanPerformLaunchOnRemote
   ExtendedGuidance.Runtime.RemoteLaunch [Postfix] -> Gates air targets without local radar sight through CanPerformLaunchOnRemote
 
 Pre-Launch Alignment & Rail Release:
   ObjectBase.HandleEngageTasks / WeaponSystemLauncher.OnUpdate [Prefix Priority.First / Finalizer Priority.Last]
-    -> Sets [ThreadStatic] _emconProtectedUnit so SensorSystem.Enable(..., turnOffAfterEngage: true) is blocked during EMCON CEC/Forward Pass launches
+    -> Sets [ThreadStatic] _emconProtectedUnit (and _allowEmconSyntheticDatalink during Own-Ship Terminal LOR) so SensorSystem.Enable(..., turnOffAfterEngage: true) blocks search/CW wakeups while permitting own synthetic DatalinkCarrier activation
   WeaponSystem.HasFreeGuidingSensors / hasFreeWeaponChannel [Prefix Priority.First / Postfix / Finalizer]
     -> EnsureConsortRadarsFresh + CapturePreLaunchEmconState/RestorePreLaunchEmconState (prevents _autoEnableSensor from breaking EMCON) + CanPerformLaunchOnRemote fallback
   WeaponSystem.HasFreeWeaponChannels [Postfix Priority default] -> CanPerformLaunchOnRemote fallback
@@ -62,20 +63,21 @@ Pre-Launch Alignment & Rail Release:
   WeaponSystemLauncher/Hardpoint.activatePreLaunchGuidance [Prefix Priority.First / Postfix / Finalizer]
     -> Runs ahead of ExtendedGuidance.Hooks.RemotePrelaunch (Priority.High)
     -> EnsureConsortRadarsFresh
-    -> Zeroes _horizonRange when CanPerformLaunchOnRemote; cancels queued asynchronous local radar enables (_wasSetOn / _sensorsToTurnOff) and restores Emcon.Value; calls EnsureRemotePreLaunchTargetAssigned (skipping local/EMCON sensors)
+    -> Zeroes _horizonRange when CanPerformLaunchOnRemote; cancels queued asynchronous local radar enables (_wasSetOn / _sensorsToTurnOff) and restores Emcon.Value; calls EnsureRemotePreLaunchTargetAssigned (permits own synthetic DatalinkCarrier during Own-Ship Terminal LOR, otherwise skips local/EMCON sensors)
   WeaponSystem.isAimedAtObject [Postfix Priority.First] -> Ensures remote consort target alignment & EMCON clearance
   WeaponBase.ActivateNonLaserGuidanceSystem [Postfix]
-    -> Rebinds OTH/EMCON/blind shots (never retaining local/EMCON DatalinkCarriers when shooter is in air-radar EMCON) to best remote radar, or syncs EG illuminator & logs direct remote binds (and preserves non-EMCON EG DatalinkCarrier if healthy)
+    -> Rebinds OTH/EMCON/blind shots (preserving own synthetic DatalinkCarrier during Own-Ship Terminal LOR when !HasForwardPassIlluminatorCoverage && HasOwnShipTerminalIlluminationForLor, otherwise never retaining local/EMCON carriers) to best remote radar, or syncs EG illuminator & logs direct remote/LOR binds
 
 In-Flight Guidance & Handoff:
   Missile.OnFixedUpdate [Prefix Priority.First / Postfix+Finalizer Priority.Last]
     -> Sets IsCheckingRadioConnection = true; syncs consort illuminators; batch-aliases _launchPlatform to active guider
   ExtendedGuidance.Runtime.Illuminator [Prefix / Finalizer] + SensorSystem.CanGuideAmmo [Postfix]
-    -> Scopes ActiveEgIlluminatorMissile, releases any Tier 1/2 EMCON terminal illuminator, and rejects non-SARH/DirectedSearch radars, EMCON hosts, and non-qualifying/out-of-reach consorts
+    -> Scopes ActiveEgIlluminatorMissile, releases any Tier 1/2 EMCON terminal illuminator (except trueLauncher's own CW dish during Own-Ship Terminal LOR), and rejects non-SARH/DirectedSearch radars, EMCON hosts, and non-qualifying/out-of-reach consorts
   Missile.OnUpdateEveryFrame [Prefix/Postfix/Finalizer]
     -> Aliases _launchPlatform during CheckRadioConnection
     -> Skips mid-course handoff for LocalTerminalOnly missiles already in FlightStage.TerminalApproach (pitbull)
     -> Repairs same-radar channel/link state quietly without logging X -> X self-handoffs
+    -> Preserves local EMCON synthetic DatalinkCarrier mid-course during Own-Ship Terminal LOR
     -> On link loss, blind/EMCON guider, or EG terminal promotion window -> FindHandoffRadar (1.0s cooldown)
        and synchronously enables standby CW illuminator via ForceEnableRadarSynchronous
   WeaponBase.IsUnguidableOrphan [Postfix] -> Keeps missile alive if guided by live consort/AWACS

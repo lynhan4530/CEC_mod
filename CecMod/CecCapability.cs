@@ -676,6 +676,73 @@ namespace CecMod
             return false;
         }
 
+        public static float GetLocalOrganicAirHorizonRange(
+            ObjectBase host,
+            ObjectBase target,
+            ObjectBase.SensorRangeOptions options = default)
+        {
+            if (host?._obp?._sensorSystems == null || target == null)
+                return 0f;
+
+            options.IgnoreCloudCover = true;
+            float best = 0f;
+            var systems = host._obp._sensorSystems;
+            for (int i = 0; i < systems.Count; i++)
+            {
+                SensorSystem s = systems[i];
+                if (s == null || s.IsDestroyed || s.Inoperable.Value)
+                    continue;
+                if (IsSyntheticDatalinkSensor(s) || IsNonAirSearchHelperSensor(s))
+                    continue;
+
+                if (s is SensorSystemRadar r)
+                {
+                    if (!r.CanSeeAirTargets || r._radar?._rp == null)
+                        continue;
+                    float d = r.GetRange(target, options).Distance;
+                    if (d > best) best = d;
+                }
+                else if (s is SensorSystemVisual)
+                {
+                    float d = s.GetRange(target, options).Distance;
+                    if (d > best) best = d;
+                }
+            }
+            return best;
+        }
+
+        public static float GetLocalOrganicFcrHorizonRange(
+            WeaponSystem weapon,
+            AmmunitionParameters ap,
+            ObjectBase target,
+            ObjectBase.SensorRangeOptions options = default)
+        {
+            if (weapon?._vwp?._associatedSensors == null || weapon._baseObject == null || ap == null || target == null)
+                return 0f;
+
+            options.IgnoreAltitudeBrackets = true;
+            bool isSarh = IsSarhMissile(ap);
+            float best = 0f;
+            var sensors = weapon._vwp._associatedSensors;
+            for (int i = 0; i < sensors.Count; i++)
+            {
+                if (!(sensors[i] is SensorSystemRadar r) || r._baseObject != weapon._baseObject)
+                    continue;
+                if (r.IsDestroyed || r.Inoperable.Value || r._radar?._rp == null)
+                    continue;
+                if (IsSyntheticDatalinkSensor(r) || IsNonAirSearchHelperSensor(r))
+                    continue;
+                if (!r.CanGuideAmmo(ap))
+                    continue;
+                if (isSarh && !CanRadarIlluminateSarh(r, ap, weapon._baseObject))
+                    continue;
+
+                float d = Mathf.Min(r.GetRange(target, options).Distance, r._radar._rp._maxRange);
+                if (d > best) best = d;
+            }
+            return best;
+        }
+
         // =========================================================================================
         // 4. STRICT 4-TIER GATING ENGINE
         // =========================================================================================
@@ -746,16 +813,17 @@ namespace CecMod
                 return HasTrackingCooperatorForRemoteLaunch(shooter, target);
             }
 
-            // 2. Tier 2 SARH Forward Pass (Project Mountain Top)
+            // 2. Tier 1/2 SARH: Forward Pass consort illuminator OR own-ship terminal illumination CEC LOR
             if (isSarh)
             {
-                return HasForwardPassIlluminatorCoverage(shooter, ap, target);
+                return HasForwardPassIlluminatorCoverage(shooter, ap, target)
+                    || HasOwnShipTerminalIlluminationForLor(shooter, ap, target);
             }
 
             return false;
         }
 
-        private static bool HasTrackingCooperatorForRemoteLaunch(ObjectBase shooter, ObjectBase target)
+        public static bool HasTrackingCooperatorForRemoteLaunch(ObjectBase shooter, ObjectBase target)
         {
             var tf = shooter._taskforce;
             if (tf == null) return false;
@@ -808,7 +876,7 @@ namespace CecMod
             return CooperatorSeesTarget(cooperator, target);
         }
 
-        private static bool HasForwardPassIlluminatorCoverage(ObjectBase shooter, AmmunitionParameters ap, ObjectBase target)
+        public static bool HasForwardPassIlluminatorCoverage(ObjectBase shooter, AmmunitionParameters ap, ObjectBase target)
         {
             var tf = shooter._taskforce;
             if (tf == null) return false;
@@ -834,6 +902,171 @@ namespace CecMod
             }
 
             return false;
+        }
+
+        private static float SolveInterceptTime(
+            Vector3 shooterPos,
+            Vector3 shooterVel,
+            Vector3 targetPos,
+            Vector3 targetVel,
+            float missileSpeedUnity,
+            float maxFlightTime)
+        {
+            if (missileSpeedUnity <= 0.0001f)
+                return -1f;
+
+            float t = HorizontalDistance(shooterPos, targetPos) / missileSpeedUnity;
+            for (int i = 0; i < 3; i++)
+            {
+                Vector3 rel = (targetPos + targetVel * t) - shooterPos;
+                t = rel.magnitude / missileSpeedUnity;
+            }
+
+            if (t <= 0f || float.IsNaN(t) || float.IsInfinity(t) || t > maxFlightTime)
+                return -1f;
+
+            return t;
+        }
+
+        private static bool CheckPredictedOwnIlluminatorLos(
+            ObjectBase shooter,
+            SensorSystemRadar r,
+            ObjectBase target,
+            AmmunitionParameters ap,
+            float t)
+        {
+            if (r?._radar?._rp == null)
+                return false;
+
+            Vector3 targetVelHoriz = new Vector3(target.UnityVelocityVector.x, 0f, target.UnityVelocityVector.z);
+            Vector3 shooterVelHoriz = new Vector3(shooter.UnityVelocityVector.x, 0f, shooter.UnityVelocityVector.z);
+            Vector3 predTarget = target.transform.position + targetVelHoriz * t;
+            Vector3 predShooter = shooter.transform.position + shooterVelHoriz * t;
+            float predDist = HorizontalDistance(predShooter, predTarget);
+            float targetAlt = Mathf.Max(0f, target.VisibleAltitude);
+
+            var rp = r._radar._rp;
+            if (predDist < rp._minRange || predDist > rp._maxRange || predDist > ap._launchRangesInUnity.y)
+                return false;
+
+            if (rp._maxAltitude > 0f && targetAlt > rp._maxAltitude)
+                return false;
+
+            float horizon = RadarCalculator.getRadarHorizon(
+                r.SensorPosition.y,
+                targetAlt,
+                visual: false,
+                Utils.TerrainAltForHorizon(shooter, target));
+            return predDist <= horizon;
+        }
+
+        public static SensorSystemRadar FindOwnShipTerminalIlluminatorForLor(
+            ObjectBase shooter,
+            AmmunitionParameters ap,
+            ObjectBase target)
+        {
+            if (shooter == null || shooter.IsDestroyed || ap == null || target == null || target.IsDestroyed || !target.isAirTarget())
+                return null;
+
+            if (!IsSarhMissile(ap) || ap._midCourseCorrection == null || !ap._midCourseCorrection.AllowsLauncherGuidance)
+                return null;
+
+            var shooterProfile = GetPlatformProfile(shooter);
+            bool shooterSatcom = (shooterProfile.Datalinks & DatalinkStandard.SatcomUplink) != 0;
+            if (shooterProfile.CecTier != CecTier.Tier1 && !shooterSatcom)
+                return null;
+
+            var missileProfile = GetMissileProfile(ap);
+            if (missileProfile.CecTier == CecTier.Tier3 || missileProfile.CecTier == CecTier.Tier0)
+                return null;
+
+            var systems = shooter._obp?._sensorSystems;
+            if (systems == null)
+                return null;
+
+            if (!HasTrackingCooperatorForRemoteLaunch(shooter, target))
+                return null;
+
+            Vector3 shooterPos = shooter.transform.position;
+            Vector3 targetPos = target.transform.position;
+            Vector3 shooterVelHoriz = new Vector3(shooter.UnityVelocityVector.x, 0f, shooter.UnityVelocityVector.z);
+            Vector3 targetVelHoriz = new Vector3(target.UnityVelocityVector.x, 0f, target.UnityVelocityVector.z);
+
+            float maxFlight = ap._maxFlightTime > 0f ? ap._maxFlightTime : 300f;
+            float tIntercept = -1f;
+            var analytical = Missile.CalculateMissileInterceptTimeAnalytical(
+                ap,
+                shooterPos,
+                shooter.IsAirUnit ? shooter._velocityInKnots : 0f,
+                targetPos,
+                targetVelHoriz,
+                ap.GetDragFactor(shooter.IsAirUnit));
+            if (analytical.canIntercept
+                && analytical.interceptTime > 0f
+                && !float.IsNaN(analytical.interceptTime)
+                && !float.IsInfinity(analytical.interceptTime))
+            {
+                tIntercept = analytical.interceptTime;
+            }
+            else
+            {
+                float fallbackSpeedUnity = (ap._maxVelocityInKnots * 0.514444444f * 0.7f) / 67.200066f;
+                if (fallbackSpeedUnity <= 0.01f)
+                    return null;
+
+                tIntercept = SolveInterceptTime(
+                    shooterPos,
+                    shooterVelHoriz,
+                    targetPos,
+                    targetVelHoriz,
+                    fallbackSpeedUnity,
+                    maxFlight);
+            }
+
+            if (tIntercept <= 0f || tIntercept > maxFlight)
+                return null;
+
+            float currentHorizDist = HorizontalDistance(shooterPos, targetPos);
+            float avgClosureUnity = Mathf.Max(currentHorizDist / Mathf.Max(tIntercept, 1f), 5f);
+            float termWindow = Mathf.Clamp(
+                ap._terminalApproachDist > 0f ? (ap._terminalApproachDist / avgClosureUnity) + 3f : 12f,
+                8f,
+                20f);
+            float tIllumStart = Mathf.Max(0f, tIntercept - termWindow);
+
+            SensorSystemRadar fallback = null;
+            for (int i = 0; i < systems.Count; i++)
+            {
+                if (!(systems[i] is SensorSystemRadar r))
+                    continue;
+                if (!CanRadarIlluminateSarh(r, ap, shooter) || r._mountObject == null)
+                    continue;
+                if (!r.HasFreeTargetChannels(target) || !r.HasFreeWeaponChannels())
+                    continue;
+
+                if (!EgBridge.IsActive && !(tIllumStart <= 8f || RadarCanSee(r, target)))
+                    continue;
+
+                if (!CheckPredictedOwnIlluminatorLos(shooter, r, target, ap, tIllumStart)
+                    || !CheckPredictedOwnIlluminatorLos(shooter, r, target, ap, tIntercept))
+                    continue;
+
+                if (r._type == SensorSystemRadar.RadarType.Targeting)
+                    return r;
+
+                if (fallback == null)
+                    fallback = r;
+            }
+
+            return fallback;
+        }
+
+        public static bool HasOwnShipTerminalIlluminationForLor(
+            ObjectBase shooter,
+            AmmunitionParameters ap,
+            ObjectBase target)
+        {
+            return FindOwnShipTerminalIlluminatorForLor(shooter, ap, target) != null;
         }
 
         private static bool ConsortHasIlluminatorForTarget(ObjectBase shooter, ObjectBase consort, SarhIllumFamily reqFam, ObjectBase target)
@@ -1755,8 +1988,12 @@ namespace CecMod
             var tf = shooter._taskforce;
             if (tf == null) return null;
 
-            SarhIllumFamily reqFam = GetMissileProfile(ap).RequiredSarhFamily;
-            if (reqFam == SarhIllumFamily.None) reqFam = GetRequiredSarhFamily(shooter);
+            var shooterProfile = GetPlatformProfile(shooter);
+            bool shooterSatcom = (shooterProfile.Datalinks & DatalinkStandard.SatcomUplink) != 0;
+            if (shooterProfile.CecTier != CecTier.Tier1 && !shooterSatcom) return null;
+
+            var missileProfile = GetMissileProfile(ap);
+            if (missileProfile.CecTier == CecTier.Tier3 || missileProfile.CecTier == CecTier.Tier0) return null;
 
             SensorSystemRadar best = null;
             float bestDistSq = float.MaxValue;
@@ -1778,12 +2015,7 @@ namespace CecMod
                 for (int i = 0; i < systems.Count; i++)
                 {
                     if (!(systems[i] is SensorSystemRadar r)) continue;
-                    if (r.Inoperable.Value || r._radar?._rp == null) continue;
-                    if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r)) continue;
-
-                    SarhIllumFamily rFam = GetSarhFamily(r);
-                    if (r._type != SensorSystemRadar.RadarType.Targeting && rFam == SarhIllumFamily.None) continue;
-                    if (reqFam != SarhIllumFamily.None && rFam != reqFam) continue;
+                    if (!CanRadarIlluminateSarh(r, ap, shooter) || r._mountObject == null) continue;
 
                     if (GetRadarProfile(r).IsMfr)
                         EnsureMidCourseChannels(r);
@@ -1915,11 +2147,24 @@ namespace CecMod
             string protocol = GetDatalinkProtocolDisplayName(shooter, tracker);
 
             bool isSarh = IsSarhMissile(ap);
+            bool canUseTier1Remote =
+                (shooterProfile.CecTier == CecTier.Tier1 || (shooterProfile.Datalinks & DatalinkStandard.SatcomUplink) != 0)
+                && missileProfile.CecTier != CecTier.Tier3
+                && missileProfile.CecTier != CecTier.Tier0;
 
-            // Tier 1 Forward Pass (SARH, e.g. SM-2MR)
+            bool hasTier1Link =
+                canUseTier1Remote
+                && (trackerProfile.CecTier == CecTier.Tier1 || (trackerProfile.Datalinks & DatalinkStandard.SatcomUplink) != 0)
+                && (interaction == InteractionTier.Tier1_FullCec
+                    || interaction == InteractionTier.SatcomGlobal
+                    || interaction == InteractionTier.Tier1_IntraFlightOnly);
+
+            // Tier 1 Forward Pass / Own-Ship Terminal LOR (SARH, e.g. SM-2MR)
             if (isSarh)
             {
-                SensorSystemRadar illum = FindConsortIlluminatorForTarget(shooter, ap, target);
+                SensorSystemRadar illum = canUseTier1Remote
+                    ? FindConsortIlluminatorForTarget(shooter, ap, target)
+                    : null;
                 if (illum != null)
                 {
                     string shipName = illum._baseObject?.getName() ?? "Consort";
@@ -1927,7 +2172,43 @@ namespace CecMod
                     return $"<Run Foreground=\"#81C784\">Forward Pass: {shipName} [{radarName}]</Run><LineBreak/>";
                 }
 
-                return $"<Run Foreground=\"#FFF176\">Cued via {protocol} (Local radar lock required to fire)</Run><LineBreak/>";
+                string trackerName = Patches.DatalinkUiPatch.FormatCleanUnitName(tracker)
+                    .Replace("&", "&amp;")
+                    .Replace("<", "&lt;")
+                    .Replace(">", "&gt;");
+                string safeProtocol = (protocol ?? "CEC")
+                    .Replace("&", "&amp;")
+                    .Replace("<", "&lt;")
+                    .Replace(">", "&gt;");
+
+                SensorSystemRadar ownIllum = canUseTier1Remote
+                    ? FindOwnShipTerminalIlluminatorForLor(shooter, ap, target)
+                    : null;
+                if (ownIllum != null)
+                {
+                    string illumName = (ownIllum._systemName ?? "CW")
+                        .Replace("&", "&amp;")
+                        .Replace("<", "&lt;")
+                        .Replace(">", "&gt;");
+                    return $"<Run Foreground=\"#4FC3F7\">CEC LOR: {trackerName} [{safeProtocol} | Own {illumName} Terminal]</Run><LineBreak/>";
+                }
+
+                if (hasTier1Link)
+                {
+                    if (HasAwacsRadar(tracker))
+                    {
+                        if (ap._midCourseCorrection != null && ap._midCourseCorrection.AllowsLauncherGuidance)
+                        {
+                            return $"<Run Foreground=\"#FFF176\">Cued via {safeProtocol}: {trackerName} (Below own CW horizon at intercept)</Run><LineBreak/>";
+                        }
+
+                        return $"<Run Foreground=\"#FFF176\">Cued via {safeProtocol}: {trackerName} (Own radar/CW LOS required for SARH)</Run><LineBreak/>";
+                    }
+
+                    return $"<Run Foreground=\"#FFF176\">Cued via {safeProtocol}: No CW illuminator LOS (Local radar lock required)</Run><LineBreak/>";
+                }
+
+                return $"<Run Foreground=\"#FFF176\">Cued via {safeProtocol} (Local radar lock required to fire)</Run><LineBreak/>";
             }
 
             // Tier 1 Blind OTH / EMCON (ARH, e.g. SM-6)
