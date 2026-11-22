@@ -22,7 +22,7 @@
 | [TC-16](#tc-16--pitbull-terminal-localterminalonlytrue-clean-log) | E | Pitbull Terminal (`LocalTerminalOnly=True`) Clean Log | `PASS` | User confirmed passed in-game. |
 | [TC-17](#tc-17--sunken-launcher-survivor-takeover) | E | Sunken Launcher Survivor Takeover | `PASS` | User confirmed passed in-game. |
 | [TC-18](#tc-18--consort-guidance-hull-raycast-check) | E | Consort Guidance Hull Raycast Check | `PASS` | User confirmed passed in-game. |
-| [TC-19](#tc-19--extendedguidance-on-vs-off-parity) | F | `ExtendedGuidance` ON vs. OFF Parity | `Pending` | — |
+| [TC-19](#tc-19--extendedguidance-on-vs-off-parity) | F | `ExtendedGuidance` ON vs. OFF Parity | `PASS` | User confirmed passed in-game (both `ExtendedGuidance` ON hybrid bridge mode and `ExtendedGuidance` OFF standalone mode verified cleanly with zero exceptions). |
 | [TC-20](#tc-20--autonomous-weapons-free--zero-map-clutter--f10-overlay) | F | Autonomous "Weapons Free" + Zero Map Clutter + F10 Overlay | `Pending` | — |
 
 ---
@@ -272,13 +272,13 @@
 ## Group F — Ecosystem, UI & Autonomous AI Checks
 
 ### TC-19 — `ExtendedGuidance` ON vs. OFF Parity
-- **Status**: `Pending`
+- **Status**: `PASS`
 - **Setup**: Run **TC-01** (`AIM-174B` EMCON) and **TC-06** (`SM-2` Forward Pass) once with `ExtendedGuidance` **enabled**, and once with `ExtendedGuidance` **disabled**.
 - **Steps**: Verify startup log, pre-launch firing, mid-course status bar, and terminal illumination.
 - **Expected Result**:
   - **EG ON**: Log shows `[CEC] Detected ExtendedGuidance assembly` + `hybrid CEC + ExtendedGuidance realism bridge enabled` at startup; `SM-2` uses `DatalinkCarrier` mid-course and promotes consort CW illuminator only when terminal illumination is due.
   - **EG OFF**: Clean standalone mode with zero exceptions.
-- **Result / Notes**: _Not tested yet._
+- **Result / Notes**: User confirmed passed in-game (`2026-11-23`) across both `ExtendedGuidance` ON (hybrid CEC + EG bridge) and `ExtendedGuidance` OFF (standalone mode) with zero errors.
 
 ---
 
