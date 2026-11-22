@@ -5,6 +5,9 @@ All notable changes to **Sea Power CEC (`CecMod`)** are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Fixed misclassified modern USN Aegis CEC ship variants and `ExtendedGuidance.Runtime.RemoteLaunch` air-target bypass (`TC-02`):
+  - Upgraded 18 real-world `AN/USG-2` / `AN/USG-2B` CEC USN Aegis variants in `data/cec_tables/03_Ships.csv` (`usn_ddg_burke_f3_concept`, `usn_cg_bunker_hill_vls_2014`, `usn_ddg_burke_f1_051`, `051_late`, `052_late`, `054_late`, `f2_072_late`, `f2a_079_late`, `080_late`, `084_late`, `085`, `088_laser`, `089`, `091_early`, `091`, `097_early`, `097`, `119`) from `Tier 2` (`Link 16 / Link 11`) to `Tier 1` (`USG-2 CEC / Link 16`) and regenerated `CecMod/CecDataTables.g.cs`.
+  - Added the 14th `ExtendedGuidance.Runtime` hook (`EgBridge.RemoteLaunch_Postfix`) so air-target remote launches without local radar sight must pass `CecCapability.CanPerformLaunchOnRemote`.
 - Enforced airborne (`Aircraft._isInFlight`) and radio-horizon/instrumented reach checks (`CecCapability.IsGatewayInRadioReach`, using `DatalinkMastHeight(..., requireRadarOn: false)` so an EMCON `E-2D` / gateway still relays radio links) in `CecCapability.TaskforceHasActiveGateway` (`TC-14`).
 - Fixed stealth `MADL` / `IFDL` intra-flight isolation, helper-sensor leaks, and missing Block III Super Hornet entries (`TC-13`):
   - Excluded stealth `MADL` / `IFDL` platforms (`F-35` / `F-22`) from the `Link 16 <-> Link 16` Tier 1 upgrade in `CecCapability.ResolveBestDatalinkPair`, returned `Tier1_IntraFlightOnly` for same-flight pairs, and bridged cross-flight `MADL` / `IFDL` pairs to `Tier1_FullCec` (`(GW)`) when an active gateway is present.

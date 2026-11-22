@@ -18,7 +18,7 @@ A core goal of `CecMod` is **zero `.ini` overrides** and seamless runtime compat
   - `EgBridge.Initialize(harmony)` watches `AppDomain.CurrentDomain.AssemblyLoad` for `"ExtendedGuidance"` and immediately probes `_ = IsActive;` at `CecPlugin.Awake()` so runtime Harmony hooks are installed before Mono JIT-compiles/inlines `ExtendedGuidance` wrapper methods (important because Anchor Chain loads `ExtendedGuidance` before `CecMod`).
   - Probes every `2000` ticks (`ProbeIntervalTicks`) for `ExtendedGuidance.MissileStatusApi.Active` or `Harmony.HasAnyPatches("euromod.extended-guidance")` and binds reflection delegates/field refs into `ExtendedGuidance.Runtime` (`DatalinkCarrier`, `CanIlluminate`, `Get(Missile, bool)`, `TerminalIlluminationDue(State, double)`) and `ExtendedGuidance.State` (`Missile`, `Illuminator`, `LinkAvailable`, `SupportUpdated`).
 
-### 13 Dynamic Harmony Hooks Installed on `ExtendedGuidance.Runtime` (`ApplyRuntimeHooks`)
+### 14 Dynamic Harmony Hooks Installed on `ExtendedGuidance.Runtime` (`ApplyRuntimeHooks`)
 1. `PlanningLaunchVisibility` (Postfix): Lifts `PlanningLaunchCantSee` (`< 20.669622f`) to `Mathf.Max(distToTarget + 50f, 25f)` when `CanPerformLaunchOnRemote` succeeds.
 2. `PlanningLaunchCantSee` (Postfix): Clears `CantSeeTarget` (`false`) directly on the planning wrapper when `CanPerformLaunchOnRemote` succeeds, defeating Mono JIT inlining of `PlanningLaunchVisibility`.
 3. `PlanningMatchCantSeeMemo` (Postfix): Clears CantSee (`false`) directly on the memoized ammo-matching wrapper when `CanPerformLaunchOnRemote` succeeds.
@@ -32,6 +32,7 @@ A core goal of `CecMod` is **zero `.ini` overrides** and seamless runtime compat
 11. `CanRadarSee` (Postfix): Falls back to `CecCapability.RadarCanSee(radar, target)` for active radars and air targets.
 12. `CommandTracking` (Postfix): Returns `true` for Tier-1/Tier-2 datalink-capable missiles when guided by an active, operable radar that passes `CanGuideAmmo` and `RadarCanReachMissile`, preventing local `ContactSensorAssignment` checks from rejecting remote AWACS/consort guiders on `MidCourseCorrection=1` missiles.
 13. `Illuminator` (Prefix + Finalizer): Sets `[ThreadStatic] ActiveEgIlluminatorMissile` so `RemoteEngagementPatch.CanGuideAmmo_Postfix` rejects non-SARH/`DirectedSearch` radars (e.g., `SPY-1D(V) (P2027)`), EMCON hosts, and non-qualifying/out-of-reach consorts, and releases any currently reserved terminal illuminator on a Tier 1/2 platform in air-radar EMCON via `ReleaseIlluminator`.
+14. `RemoteLaunch` (Postfix): Gates air targets when `!HasLocalRadarSight` through `CecCapability.CanPerformLaunchOnRemote`, preventing Tier 2/3 platforms with `TrackSource=Auto` datalink carriers (e.g., `eu_AEGIS_BL5`/`BL9`/`BL10`) from bypassing `CecMod`'s Launch-on-Remote rules while leaving surface/land targets and local-sight shots untouched.
 
 ### Cross-Mod Physics & Terminal Illumination Synchronization
 - **Batch Physics-Tick Aliasing (`HandoffPatch.OnFixedUpdate_Prefix`)**: `ExtendedGuidance.Runtime.Prepare` batch-processes all airborne missiles on the first `Missile.OnFixedUpdate` of each tick (`GameTime.missionElapsedTime`). `HandoffPatch` aliases `_launchPlatform` across all remotely guided missiles on that first call and restores them in `OnFixedUpdate_Postfix` / `Finalizer`.

@@ -580,6 +580,17 @@ namespace CecMod
                         finalizer: new HarmonyMethod(finalizer));
                 }
 
+                // 11. Gate ExtendedGuidance.Runtime.RemoteLaunch on air targets through CecMod's
+                //     4-tier Launch-on-Remote rules so Tier 2/3 platforms never bypass CEC gating.
+                MethodInfo remoteLaunch = _runtimeType.GetMethod("RemoteLaunch", AllStatic);
+                if (remoteLaunch != null)
+                {
+                    MethodInfo postfix = typeof(EgBridge).GetMethod(
+                        nameof(RemoteLaunch_Postfix),
+                        AllStatic);
+                    _harmony.Patch(remoteLaunch, postfix: new HarmonyMethod(postfix));
+                }
+
                 CecPlugin.Log.LogInfo("[CEC] ExtendedGuidance active — hybrid CEC + ExtendedGuidance realism bridge enabled.");
             }
             catch (Exception ex)
@@ -1037,6 +1048,36 @@ namespace CecMod
         {
             ActiveEgIlluminatorMissile = __state;
             return __exception;
+        }
+
+        private static void RemoteLaunch_Postfix(
+            WeaponSystem weapon,
+            ObjectBase target,
+            AmmunitionParameters ap,
+            ref bool __result)
+        {
+            try
+            {
+                if (!__result
+                    || !IsActive
+                    || weapon?._baseObject == null
+                    || target == null
+                    || !target.isAirTarget()
+                    || ap == null)
+                {
+                    return;
+                }
+
+                if (!CecCapability.HasLocalRadarSight(weapon._baseObject, target)
+                    && !CecCapability.CanPerformLaunchOnRemote(weapon._baseObject, ap, target))
+                {
+                    __result = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] RemoteLaunch_Postfix exception: {ex}");
+            }
         }
     }
 }

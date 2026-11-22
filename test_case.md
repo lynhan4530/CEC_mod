@@ -5,7 +5,7 @@
 | ID | Group | Test Case | Status | Result / Summary |
 |---|---|---|---|---|
 | [TC-01](#tc-01--air-to-air-emcon-launch-on-remote-nifc-ca) | A | Air-to-Air EMCON Launch-on-Remote (NIFC-CA) | `PASS` | User confirmed working in-game. |
-| [TC-02](#tc-02--ship-to-air-oth-launch-on-remote-arh--awacs) | A | Ship-to-Air OTH Launch-on-Remote (ARH + AWACS) | `PASS (Needs Enhancement)` | `RIM-174B` (SM-6) fires OTH from `DDG-133 Sam Nunn`; UI hover hint needs update (shows yellow `Cued via Link 16 (Local radar lock required to fire)` instead of cyan `CEC Track`). |
+| [TC-02](#tc-02--ship-to-air-oth-launch-on-remote-arh--awacs) | A | Ship-to-Air OTH Launch-on-Remote (ARH + AWACS) | `PASS` | User confirmed passed in-game (18 modern USN Aegis hulls including `usn_ddg_burke_f3_concept` upgraded to Tier 1 `USG-2 CEC`; cyan `CEC Track` hover and OTH launch verified; `EgBridge` now gates `ExtendedGuidance.Runtime.RemoteLaunch` on air targets). |
 | [TC-03](#tc-03--multi-missile-salvo-channel-expansion-32-ch-check) | A | Multi-Missile Salvo Channel Expansion (32-Ch Check) | `PASS` | User confirmed passed in-game. |
 | [TC-04](#tc-04--pla-a-shoot-b-guide-jsidls) | A | PLA "A-Shoot-B-Guide" (JSIDLS) | `PASS (Note)` | Cooperative JSIDLS guidance from `KJ-600` confirmed via `ExtendedGuidance` hint on follow-up `F-16` test near ship; `KJ-600` did not detect `Tu-95RT` at `77.6 nm` inside its radar ring. |
 | [TC-05](#tc-05--tier-1-link-16-upgrade-euro--allied) | A | Tier 1 Link 16 Upgrade (Euro / Allied) | `PASS` | User confirmed passed in-game. |
@@ -43,7 +43,7 @@
 ---
 
 ### TC-02 — Ship-to-Air OTH Launch-on-Remote (ARH + AWACS)
-- **Status**: `PASS (Needs Enhancement)`
+- **Status**: `PASS`
 - **Setup**: `DDG-51` / `CG-47` (`SM-6` / `ESSM Blk 2`, `EMCON` or target below ship radar horizon) + `E-2D Hawkeye` (radar ON) vs. low-altitude sea-skimming target beyond ~20–25 nmi.
 - **Steps**: Order ship to fire `SM-6` at the below-horizon target.
 - **Expected Result**:
@@ -51,9 +51,8 @@
   - Ship fires OTH without breaking EMCON.
   - Missile tracks on `E-2D` mid-course and goes active terminal.
 - **Result / Notes**:
-  - Tested on `2026-11-22` with `DDG-133 Sam Nunn` (`#1001`) + `#1003 (AEW&C) VAW-113` (`29,998 ft`) vs. target `#7001` (`1,085 ft`).
-  - **Engagement behavior**: `RIM-174B` (SM-6, `Max range: 125.8 nm`, `47 RIM-174B` remaining) successfully fires OTH from the ship — core behavior **passed**.
-  - **UI Enhancement needed** (see `media_1795290975198_c2489bd3.jpg`): Hover tooltip with `RIM-174B` displays yellow `Cued via Link 16 (Local radar lock required to fire)` instead of the cyan Tier 1 `CEC Track: ...` hint. (Fix/update later.)
+  - **Re-test after fix (`2026-11-22`)**: User confirmed passed in-game (18 misclassified modern USN Aegis CEC variants including `usn_ddg_burke_f3_concept` upgraded from Tier 2 `Link 16 / Link 11` to Tier 1 `USG-2 CEC / Link 16` in `data/cec_tables/03_Ships.csv`, plus `EgBridge.RemoteLaunch_Postfix` gating `ExtendedGuidance.Runtime.RemoteLaunch` on air targets). Hover shows cyan `CEC Track: E-2D ... [USG-2/3 CEC | Tier 1]` and `RIM-174B` launches OTH cleanly.
+  - *Previous pre-fix run (`2026-11-22`, `media_1795290975198_c2489bd3.jpg`)*: `DDG-133 Sam Nunn` (`#1001`, `usn_ddg_burke_f3_concept`) + `#1003 (AEW&C) VAW-113` (`29,998 ft`) vs. `#7001` (`1,085 ft`) successfully fired `RIM-174B` (`Max range: 125.8 nm`, `47 RIM-174B` remaining) via `ExtendedGuidance`, while hover tooltip showed yellow `Cued via Link 16 (Local radar lock required to fire)`.
 
 ---
 

@@ -11,7 +11,7 @@ All C# source lives in [CecMod/](file:///G:/Project/CEC_mod/CecMod) targeting `.
 | [AnchorChainEntry.cs](file:///G:/Project/CEC_mod/CecMod/AnchorChainEntry.cs) | `AnchorChainEntry : IAnchorChainMod` (`[ACPlugin]`). Checks `IsEnabledInModMenu()` and attaches `CecPlugin` to `Chainloader.ManagerObject`. |
 | [CecDataTables.g.cs](file:///G:/Project/CEC_mod/CecMod/CecDataTables.g.cs) | Auto-generated static lookup tables (1,240 lines) from `tools/generate_cec_tables.py`. Contains enums, profile classes, `Platforms` (478: 344 ships, 134 aircraft including `usn_fa-18e_blk3` & `usn_fa-18f_blk3c`), `Radars` (287), `Missiles` (232) + P2027 aliases, and `DatalinkMatrix` (10x10). |
 | [CecCapability.cs](file:///G:/Project/CEC_mod/CecMod/CecCapability.cs) | Core qualification, datalink resolution, horizon/EMCON physics, launch-time radar injection, ammo illuminator sync, handoff search, and UI formatters. |
-| [EgBridge.cs](file:///G:/Project/CEC_mod/CecMod/EgBridge.cs) | Zero-dependency reflection bridge + 13 runtime Harmony hooks into `ExtendedGuidance.dll` (`euromod.extended-guidance`), including `ExtendedGuidance.Runtime.Illuminator` scoping/EMCON release. |
+| [EgBridge.cs](file:///G:/Project/CEC_mod/CecMod/EgBridge.cs) | Zero-dependency reflection bridge + 14 runtime Harmony hooks into `ExtendedGuidance.dll` (`euromod.extended-guidance`), including `ExtendedGuidance.Runtime.Illuminator` scoping/EMCON release and `RemoteLaunch` air-target CEC gating. |
 | [CecDebugOverlay.cs](file:///G:/Project/CEC_mod/CecMod/CecDebugOverlay.cs) | F10 Developer Menu (`DM`) integration and live diagnostic IMGUI overlay (`Ctrl+F10`, `DM.MenuWindow` `"CEC Datalink"`, `DM.DoToolbarWindow` `"CEC"`). |
 | [LaunchTimeCecPatch.cs](file:///G:/Project/CEC_mod/CecMod/Patches/LaunchTimeCecPatch.cs) | Replaces `CheckExternalRadarGuidance`; enforces EMCON protection across `SensorSystem.Enable`, `ObjectBase.HandleEngageTasks`, `WeaponSystemLauncher.OnUpdate`, `activatePreLaunchGuidance`, and `CheckTargetIsDetectableByFCR`; rebinds `ActivateNonLaserGuidanceSystem` on launch and syncs EG illuminators/logs for direct remote binds. |
 | [RemoteEngagementPatch.cs](file:///G:/Project/CEC_mod/CecMod/Patches/RemoteEngagementPatch.cs) | `AttackingStateUpdateDisplayedRangePatch` (hover telemetry) + `RemoteEngagementPatch` (`CanGuideAmmo` including `ActiveEgIlluminatorMissile` gating, pre-launch visibility/FCR/channel/aiming postfixes + EMCON-protected `HasFreeGuidingSensors` / `hasFreeWeaponChannel` hooks). |
@@ -50,6 +50,7 @@ Pre-Launch Targeting & Hover:
   ObjectBase.GetMaxRangeForFCR / GetSensorRange [Postfix] -> RefreshAndSyncConsortRadars + CanPerformLaunchOnRemote
   WeaponSystem.CanSearchSensorsSeeTarget / IsVisionRequirementMet / FCRDetectionRange / isAimedAtObject [Postfix]
   WeaponSystem.CheckTargetIsDetectableByFCR [Prefix] -> Checks radar.CanGuideAmmo + CanPerformLaunchOnRemote
+  ExtendedGuidance.Runtime.RemoteLaunch [Postfix] -> Gates air targets without local radar sight through CanPerformLaunchOnRemote
 
 Pre-Launch Alignment & Rail Release:
   ObjectBase.HandleEngageTasks / WeaponSystemLauncher.OnUpdate [Prefix Priority.First / Finalizer Priority.Last]
