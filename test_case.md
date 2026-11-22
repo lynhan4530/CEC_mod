@@ -14,7 +14,7 @@
 | [TC-08](#tc-08--sarh-family-isolation-no-cross-band-illumination) | B | SARH Family Isolation (No Cross-Band Illumination) | `PASS` | User confirmed passed in-game. |
 | [TC-09](#tc-09--tier-2-awacs-e-3a-blocks-launch-on-remote) | C | Tier 2 AWACS (`E-3A`) Blocks Launch-on-Remote | `PASS` | User confirmed passed in-game. |
 | [TC-10](#tc-10--tier-2-link-16-mid-course-rescue-shoot--crankcold) | C | Tier 2 Link 16 Mid-Course Rescue (Shoot & Crank/Cold) | `PASS` | User confirmed passed in-game. |
-| [TC-11](#tc-11--tier-3-cold-war-ship--missile-isolation) | C | Tier 3 Cold War Ship / Missile Isolation | `UNSURE` | After turning launcher radar OFF, illuminator remained ON (suspected `ExtendedGuidance` behavior; verify later). |
+| [TC-11](#tc-11--tier-3-cold-war-ship--missile-isolation) | C | Tier 3 Cold War Ship / Missile Isolation | `PASS` | User confirmed passed in-game (OTH/EMCON launch blocked; sinking launcher drops guidance with zero consort handoff; prior illuminator-staying-ON observation traced to vanilla `Seapower-Scripts.dll` keeping `Type=Targeting` illuminators permanently `IsOn=true` and untouched by Search Radar / `setEMCON` toggles). |
 | [TC-12](#tc-12--tier-0-standalone--ir-munitions) | C | Tier 0 Standalone / IR Munitions | `PASS` | User confirmed passed in-game. |
 | [TC-13](#tc-13--stealth-intra-flight-isolation-madlifdl) | D | Stealth Intra-Flight Isolation (`MADL` / `IFDL`) | `PASS` | User confirmed passed in-game (same-flight F-35 fires via `[MADL | Tier 1]`; separate-flight F-35 and non-gateway `F/A-18F` Block II blocked with yellow Link 16 cue; `F/A-18F Block III` fires as gateway). |
 | [TC-14](#tc-14--gateway-bridging-e-2d--fa-18f-blk-iii) | D | Gateway Bridging (`E-2D` / `F/A-18F Blk III`) | `PASS` | User confirmed passed in-game (airborne gateway in radio reach bridges cross-flight `MADL` / `(GW)` even with AWACS search radar OFF). |
@@ -163,16 +163,18 @@
 ---
 
 ### TC-11 — Tier 3 Cold War Ship / Missile Isolation
-- **Status**: `UNSURE`
+- **Status**: `PASS`
 - **Setup**: Cold War `Knox` / `OHP` / `Spruance` (`RIM-66A` SM-1 / `RIM-7E`) + `E-2D` or `DDG-51` (radar ON) vs. air target.
 - **Steps**:
   1. Try OTH/EMCON launch.
-  2. Launch with local FCR, then turn launcher radar OFF.
+  2. Launch with local FCR, then force true guidance loss (sink launching ship via F10 Debug Menu or drop target below launcher horizon).
 - **Expected Result**:
   - OTH/EMCON launch is **blocked**.
-  - No mid-course handoff occurs if launcher shuts off radar (missile loses guidance as in real life).
+  - No mid-course handoff occurs when the launcher loses guidance (missile loses guidance as in real life).
 - **Result / Notes**:
-  - Tested on `2026-11-22`: After turning the launcher's radar OFF post-launch, the ship's illuminator stayed ON (user suspects `ExtendedGuidance` behavior). Needs verification later (e.g., re-testing with `ExtendedGuidance` OFF or disabling FCR).
+  - **Resolution (`2026-11-23`)**: User confirmed passed in-game under Option 1 (keep vanilla ship FCR behavior untouched; verified OTH/EMCON block and verified zero mid-course handoff to `DDG-51`/`E-2D` when the launching ship loses guidance/sinks). Code audit of `Seapower-Scripts.dll` (`BaseSystem.init`, `SensorSystemRadar.init`, `ObjectBase.setEMCON`, `ObjectBase.DisableAllRadars`, `ObjectSensorViewModel`, `Missile.OnUpdateEveryFrame`) confirmed that vanilla *Sea Power* initializes all `Type=Targeting` fire-control illuminators (`MK-115`, `MK-95`, `MK92_FCS`, `SPG-60`) with `IsOn.Value = true` and never disables `_targetingRadarSystems` via search-radar toggles or `EMCON` (same with `ExtendedGuidance` ON or OFF). Real-world Cold War dedicated FCRs also remain locked independently after turning off 2D air-search radars (`SPS-40`/`SPS-49`).
+  - *Initial test (`2026-11-22`)*: Turning off only the launcher's search radar left the ship's illuminator ON due to vanilla `Type=Targeting` initialization/toggle behavior above.
+  - *Audit note*: Cold War `usn_ffg_oliver_hazard_perry` rows in `data/cec_tables/03_Ships.csv` (currently `Tier 2` with `Tier 3` `RIM-66B/E`) were left untouched for now.
 
 ---
 
