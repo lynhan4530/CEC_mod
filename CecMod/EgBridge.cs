@@ -35,10 +35,14 @@ namespace CecMod
         private static Func<SensorSystemRadar, bool> _canIlluminateFn;
         private static FastInvokeHandler _getStateInvoker;
         private static FastInvokeHandler _terminalDueInvoker;
+        private static FastInvokeHandler _releaseIlluminatorInvoker;
         private static AccessTools.FieldRef<object, SensorSystemRadar> _stateIlluminatorRef;
         private static AccessTools.FieldRef<object, bool> _stateLinkAvailableRef;
         private static AccessTools.FieldRef<object, double> _stateSupportUpdatedRef;
         private static AccessTools.FieldRef<object, Missile> _stateMissileRef;
+
+        [ThreadStatic]
+        internal static Missile ActiveEgIlluminatorMissile;
 
         /// <summary>
         /// Initializes assembly-load watching so <c>ExtendedGuidance</c> is detected immediately if
@@ -381,6 +385,17 @@ namespace CecMod
                             _terminalDueInvoker = MethodInvoker.GetHandler(termDue);
                         }
 
+                        MethodInfo releaseIllum = _runtimeType.GetMethod(
+                            "ReleaseIlluminator",
+                            AllStatic,
+                            binder: null,
+                            types: new[] { stateType },
+                            modifiers: null);
+                        if (releaseIllum != null)
+                        {
+                            _releaseIlluminatorInvoker = MethodInvoker.GetHandler(releaseIllum);
+                        }
+
                         FieldInfo illumField = stateType.GetField("Illuminator", AllInstance);
                         if (illumField != null && illumField.FieldType == typeof(SensorSystemRadar))
                         {
@@ -546,6 +561,23 @@ namespace CecMod
                         nameof(CommandTracking_Postfix),
                         AllStatic);
                     _harmony.Patch(commandTracking, postfix: new HarmonyMethod(postfix));
+                }
+
+                // 10. Scope ExtendedGuidance.Runtime.Illuminator so EMCON ships and non-CW/mismatched
+                //     radars are never picked or retained for terminal SARH illumination.
+                MethodInfo illuminator = _runtimeType.GetMethod("Illuminator", AllStatic);
+                if (illuminator != null)
+                {
+                    MethodInfo prefix = typeof(EgBridge).GetMethod(
+                        nameof(Illuminator_Prefix),
+                        AllStatic);
+                    MethodInfo finalizer = typeof(EgBridge).GetMethod(
+                        nameof(Illuminator_Finalizer),
+                        AllStatic);
+                    _harmony.Patch(
+                        illuminator,
+                        prefix: new HarmonyMethod(prefix),
+                        finalizer: new HarmonyMethod(finalizer));
                 }
 
                 CecPlugin.Log.LogInfo("[CEC] ExtendedGuidance active — hybrid CEC + ExtendedGuidance realism bridge enabled.");
@@ -971,6 +1003,40 @@ namespace CecMod
             {
                 CecPlugin.Log.LogError($"[CEC] CommandTracking_Postfix exception: {ex}");
             }
+        }
+
+        private static void Illuminator_Prefix(object s, out Missile __state)
+        {
+            __state = ActiveEgIlluminatorMissile;
+            Missile m = (s != null && _stateMissileRef != null) ? _stateMissileRef(s) : null;
+            ActiveEgIlluminatorMissile = m;
+
+            try
+            {
+                if (s != null && m != null && _stateIlluminatorRef != null && _releaseIlluminatorInvoker != null)
+                {
+                    SensorSystemRadar currentIllum = _stateIlluminatorRef(s);
+                    if (currentIllum != null && currentIllum._baseObject != null)
+                    {
+                        var tier = CecCapability.GetPlatformProfile(currentIllum._baseObject).CecTier;
+                        if ((tier == CecTier.Tier1 || tier == CecTier.Tier2)
+                            && CecCapability.IsPlatformInAirRadarEmcon(currentIllum._baseObject))
+                        {
+                            _releaseIlluminatorInvoker(null, s);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] Illuminator_Prefix exception: {ex}");
+            }
+        }
+
+        private static Exception Illuminator_Finalizer(Missile __state, Exception __exception)
+        {
+            ActiveEgIlluminatorMissile = __state;
+            return __exception;
         }
     }
 }

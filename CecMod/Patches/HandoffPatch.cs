@@ -393,7 +393,7 @@ namespace CecMod.Patches
                     continue;
                 if (r.IsDestroyed || r.Inoperable.Value || r._radar?._rp == null)
                     continue;
-                if (!EgBridge.CanEgIlluminate(r) || !r.CanGuideAmmo(m._ap))
+                if (!EgBridge.CanEgIlluminate(r) || !CecCapability.CanRadarIlluminateSarh(r, m._ap, host) || !r.CanGuideAmmo(m._ap))
                     continue;
                 if (CecCapability.IsCecMultifunctionRadar(r))
                     CecCapability.EnsureMidCourseChannels(r);

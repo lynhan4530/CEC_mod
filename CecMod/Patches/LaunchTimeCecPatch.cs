@@ -18,10 +18,157 @@ namespace CecMod.Patches
         {
             public List<SensorSystemRadar> OffLocalRadars;
             public bool WasEmcon;
+            public ObjectBase PreviousProtectedUnit;
         }
+
+        [ThreadStatic]
+        private static ObjectBase _emconProtectedUnit;
 
         private static readonly AccessTools.FieldRef<WeaponSystem, float> HorizonRangeRef =
             AccessTools.FieldRefAccess<WeaponSystem, float>("_horizonRange");
+
+        internal static ObjectBase PushEmconProtection(ObjectBase unit)
+        {
+            ObjectBase previous = _emconProtectedUnit;
+            if (unit != null)
+                _emconProtectedUnit = unit;
+            return previous;
+        }
+
+        internal static void PopEmconProtection(ObjectBase previous)
+        {
+            _emconProtectedUnit = previous;
+        }
+
+        /// <summary>
+        /// Blocks asynchronous local radar auto-enable requests (<c>turnOffAfterEngage == true</c>)
+        /// while evaluating or launching a qualified CEC Launch-on-Remote / Forward Pass engagement
+        /// from an EMCON platform.
+        /// </summary>
+        [HarmonyPatch(typeof(SensorSystem), nameof(SensorSystem.Enable))]
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
+        private static bool SensorSystemEnable_Prefix(SensorSystem __instance, bool turnOffAfterEngage)
+        {
+            if (turnOffAfterEngage
+                && _emconProtectedUnit != null
+                && __instance is SensorSystemRadar radar
+                && radar._baseObject == _emconProtectedUnit
+                && !radar.IsOn.Value)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Protects EMCON during <see cref="ObjectBase.HandleEngageTasks"/> when all radar-triggering
+        /// air engagement tasks qualify for Launch-on-Remote.
+        /// </summary>
+        [HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.HandleEngageTasks))]
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
+        private static void HandleEngageTasks_Prefix(ObjectBase __instance, out ObjectBase __state)
+        {
+            __state = _emconProtectedUnit;
+            try
+            {
+                if (__instance == null
+                    || __instance._currentEngageTasks == null
+                    || __instance._currentEngageTasks.Count == 0
+                    || !CecCapability.IsPlatformInAirRadarEmcon(__instance))
+                {
+                    return;
+                }
+
+                var profile = CecCapability.GetPlatformProfile(__instance);
+                bool hasSatcom = (profile.Datalinks & DatalinkStandard.SatcomUplink) != 0;
+                if (profile.CecTier != CecTier.Tier1 && !hasSatcom)
+                    return;
+
+                bool anyQualified = false;
+                var tasks = __instance._currentEngageTasks;
+                for (int i = 0; i < tasks.Count; i++)
+                {
+                    EngageTask task = tasks[i];
+                    ObjectBase target = task?._targetObject;
+                    AmmunitionParameters ap = task?._ammunition?._ap;
+                    if (target == null || ap == null)
+                        continue;
+
+                    bool isSarhOrCmd = ap.GuidanceTypeForTarget(target) == AmmunitionParameters.GuidanceType.SemiActiveRadarHoming
+                        || ap._midCourseCorrection == AmmunitionParameters.MidCourseCorrection.RadioCommand;
+                    bool isAirMissileOrProj = target.isAirTarget()
+                        && (ap._type == Ammunition.Type.Missile || ap._type == Ammunition.Type.Projectile);
+                    if (!isSarhOrCmd && !isAirMissileOrProj)
+                        continue;
+
+                    if (!target.isAirTarget() || !CecCapability.CanPerformLaunchOnRemote(__instance, ap, target))
+                        return;
+
+                    anyQualified = true;
+                }
+
+                if (anyQualified)
+                    _emconProtectedUnit = __instance;
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] HandleEngageTasks_Prefix exception: {ex}");
+            }
+        }
+
+        [HarmonyPatch(typeof(ObjectBase), nameof(ObjectBase.HandleEngageTasks))]
+        [HarmonyFinalizer]
+        [HarmonyPriority(Priority.Last)]
+        private static Exception HandleEngageTasks_Finalizer(ObjectBase __state, Exception __exception)
+        {
+            _emconProtectedUnit = __state;
+            return __exception;
+        }
+
+        /// <summary>
+        /// Protects EMCON during <see cref="WeaponSystemLauncher.OnUpdate"/> (which directly calls
+        /// <c>associatedSearchSensor.Enable(true, true)</c> for SARH and RadioCommand launches).
+        /// </summary>
+        [HarmonyPatch(typeof(WeaponSystemLauncher), nameof(WeaponSystemLauncher.OnUpdate))]
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
+        private static void WeaponSystemLauncherOnUpdate_Prefix(WeaponSystemLauncher __instance, out ObjectBase __state)
+        {
+            __state = _emconProtectedUnit;
+            try
+            {
+                if (__instance == null
+                    || !__instance._executingEngageTask
+                    || __instance._baseObject == null
+                    || __instance._targetObject == null
+                    || !__instance._targetObject.isAirTarget()
+                    || !CecCapability.IsPlatformInAirRadarEmcon(__instance._baseObject))
+                {
+                    return;
+                }
+
+                AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
+                if (ap != null && CecCapability.CanPerformLaunchOnRemote(__instance._baseObject, ap, __instance._targetObject))
+                {
+                    _emconProtectedUnit = __instance._baseObject;
+                }
+            }
+            catch (Exception ex)
+            {
+                CecPlugin.Log.LogError($"[CEC] WeaponSystemLauncherOnUpdate_Prefix exception: {ex}");
+            }
+        }
+
+        [HarmonyPatch(typeof(WeaponSystemLauncher), nameof(WeaponSystemLauncher.OnUpdate))]
+        [HarmonyFinalizer]
+        [HarmonyPriority(Priority.Last)]
+        private static Exception WeaponSystemLauncherOnUpdate_Finalizer(ObjectBase __state, Exception __exception)
+        {
+            _emconProtectedUnit = __state;
+            return __exception;
+        }
 
         /// <summary>
         /// Replaces vanilla <see cref="WeaponSystem.CheckExternalRadarGuidance"/>.
@@ -59,6 +206,7 @@ namespace CecMod.Patches
         /// </summary>
         [HarmonyPatch(typeof(WeaponSystemLauncher), nameof(WeaponSystemLauncher.activatePreLaunchGuidance))]
         [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
         private static void ActivatePreLaunchGuidance_Prefix(
             WeaponSystemLauncher __instance,
             ObjectBase targetObject,
@@ -68,11 +216,17 @@ namespace CecMod.Patches
             try
             {
                 if (__instance == null || targetObject == null || __instance._vwp == null)
+                {
+                    __state.PreviousProtectedUnit = _emconProtectedUnit;
                     return;
+                }
 
                 ObjectBase self = __instance._baseObject;
                 if (self == null)
+                {
+                    __state.PreviousProtectedUnit = _emconProtectedUnit;
                     return;
+                }
 
                 AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
                 CecCapability.EnsureConsortRadarsFresh(__instance, ap);
@@ -80,6 +234,7 @@ namespace CecMod.Patches
             }
             catch (Exception ex)
             {
+                __state.PreviousProtectedUnit = _emconProtectedUnit;
                 CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidance_Prefix exception: {ex}");
             }
         }
@@ -124,8 +279,17 @@ namespace CecMod.Patches
             }
         }
 
+        [HarmonyPatch(typeof(WeaponSystemLauncher), nameof(WeaponSystemLauncher.activatePreLaunchGuidance))]
+        [HarmonyFinalizer]
+        private static Exception ActivatePreLaunchGuidance_Finalizer(PreLaunchEmconState __state, Exception __exception)
+        {
+            PopEmconProtection(__state.PreviousProtectedUnit);
+            return __exception;
+        }
+
         [HarmonyPatch(typeof(WeaponSystemHardpoint), nameof(WeaponSystemHardpoint.activatePreLaunchGuidance))]
         [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
         private static void ActivatePreLaunchGuidanceHardpoint_Prefix(
             WeaponSystemHardpoint __instance,
             ObjectBase targetObject,
@@ -135,11 +299,17 @@ namespace CecMod.Patches
             try
             {
                 if (__instance == null || targetObject == null || __instance._vwp == null)
+                {
+                    __state.PreviousProtectedUnit = _emconProtectedUnit;
                     return;
+                }
 
                 ObjectBase self = __instance._baseObject;
                 if (self == null)
+                {
+                    __state.PreviousProtectedUnit = _emconProtectedUnit;
                     return;
+                }
 
                 AmmunitionParameters ap = CecCapability.ResolveWeaponAmmunitionParameters(__instance);
                 CecCapability.EnsureConsortRadarsFresh(__instance, ap);
@@ -147,6 +317,7 @@ namespace CecMod.Patches
             }
             catch (Exception ex)
             {
+                __state.PreviousProtectedUnit = _emconProtectedUnit;
                 CecPlugin.Log.LogError($"[CEC] ActivatePreLaunchGuidanceHardpoint_Prefix exception: {ex}");
             }
         }
@@ -184,6 +355,14 @@ namespace CecMod.Patches
             }
         }
 
+        [HarmonyPatch(typeof(WeaponSystemHardpoint), nameof(WeaponSystemHardpoint.activatePreLaunchGuidance))]
+        [HarmonyFinalizer]
+        private static Exception ActivatePreLaunchGuidanceHardpoint_Finalizer(PreLaunchEmconState __state, Exception __exception)
+        {
+            PopEmconProtection(__state.PreviousProtectedUnit);
+            return __exception;
+        }
+
         internal static PreLaunchEmconState CapturePreLaunchEmconState(
             WeaponSystem ws,
             ObjectBase self,
@@ -191,6 +370,8 @@ namespace CecMod.Patches
             ObjectBase targetObject)
         {
             var state = default(PreLaunchEmconState);
+            state.PreviousProtectedUnit = _emconProtectedUnit;
+
             if (ap == null)
                 ap = CecCapability.ResolveWeaponAmmunitionParameters(ws);
 
@@ -202,6 +383,8 @@ namespace CecMod.Patches
             {
                 return state;
             }
+
+            _emconProtectedUnit = self;
 
             var offLocalRadars = new List<SensorSystemRadar>();
             if (ws?._vwp?._associatedSensors != null)
@@ -245,6 +428,8 @@ namespace CecMod.Patches
 
         internal static void RestorePreLaunchEmconState(ObjectBase self, PreLaunchEmconState state)
         {
+            PopEmconProtection(state.PreviousProtectedUnit);
+
             if (state.OffLocalRadars != null)
             {
                 foreach (SensorSystemRadar r in state.OffLocalRadars)
@@ -276,41 +461,115 @@ namespace CecMod.Patches
             if (ap != null)
                 CecCapability.SyncConsortIlluminatorsToAmmo(instance, ap);
 
-            // Check if any currently ON associated sensor already has _preLaunchTargetObject == targetObject
+            ObjectBase self = instance._baseObject;
+            bool selfInEmcon = self != null && CecCapability.IsPlatformInAirRadarEmcon(self);
+            bool isSarh = ap != null && CecCapability.IsSarhMissile(ap);
+            bool hasMccDatalink = ap?._midCourseCorrection != null && ap._midCourseCorrection.IsDatalink;
+            bool preferDatalinkCarrier = isSarh && EgBridge.IsActive && hasMccDatalink;
+
+            // Check if any currently ON associated sensor already has _preLaunchTargetObject == targetObject.
+            // If the shooter is in air radar EMCON, clear local pre-launch locks so local dishes do not slew.
+            bool alreadyAligned = false;
             foreach (SensorSystem sensor in instance._vwp._associatedSensors)
             {
-                if (sensor != null
-                    && sensor.IsOn.Value
-                    && !sensor.IsDestroyed
-                    && !sensor.Inoperable.Value
-                    && sensor._preLaunchTargetObject == targetObject)
+                if (sensor == null)
+                    continue;
+
+                if (selfInEmcon && sensor._baseObject == self)
                 {
-                    instance._sensorPreLaunchAligned = true;
-                    return;
+                    if (sensor._preLaunchTargetObject == targetObject)
+                        sensor._preLaunchTargetObject = null;
+                    continue;
+                }
+
+                if (alreadyAligned
+                    || !sensor.IsOn.Value
+                    || sensor.IsDestroyed
+                    || sensor.Inoperable.Value
+                    || sensor._preLaunchTargetObject != targetObject)
+                {
+                    continue;
+                }
+
+                if (sensor is SensorSystemRadar ssr)
+                {
+                    if (ssr._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(ssr._baseObject))
+                        continue;
+
+                    if (isSarh)
+                    {
+                        bool validSarhAlign = preferDatalinkCarrier
+                            ? EgBridge.IsDatalinkCarrier(ssr)
+                            : CecCapability.CanRadarIlluminateSarh(ssr, ap, self);
+                        if (!validSarhAlign)
+                            continue;
+                    }
+                }
+
+                alreadyAligned = true;
+            }
+
+            if (alreadyAligned)
+            {
+                instance._sensorPreLaunchAligned = true;
+                return;
+            }
+
+            // Otherwise, assign targetObject to the best active associated sensor (such as an injected remote radar).
+            SensorSystemRadar bestSensor = null;
+            int bestPriority = -1;
+
+            foreach (SensorSystem sensor in instance._vwp._associatedSensors)
+            {
+                if (!(sensor is SensorSystemRadar radar) || !radar.IsOn.Value || radar.IsDestroyed || radar.Inoperable.Value)
+                    continue;
+                if (selfInEmcon && radar._baseObject == self)
+                    continue;
+                if (radar._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(radar._baseObject))
+                    continue;
+
+                int priority = 1;
+                if (isSarh)
+                {
+                    if (preferDatalinkCarrier)
+                    {
+                        if (EgBridge.IsDatalinkCarrier(radar))
+                            priority = 2;
+                        else if (CecCapability.CanRadarIlluminateSarh(radar, ap, self) && EgBridge.CanEgIlluminate(radar))
+                            priority = 1;
+                        else
+                            continue;
+                    }
+                    else
+                    {
+                        if (!CecCapability.CanRadarIlluminateSarh(radar, ap, self))
+                            continue;
+                    }
+                }
+
+                if (CecCapability.IsAwacsRadar(radar) || CecCapability.IsCecMultifunctionRadar(radar))
+                {
+                    CecCapability.EnsureMidCourseChannels(radar);
+                }
+                if (ap != null && !radar.CanGuideAmmo(ap))
+                    continue;
+                if (!radar.HasFreeTargetChannels(targetObject) || !radar.HasFreeWeaponChannels())
+                    continue;
+                if (!CecCapability.RadarCanSee(radar, targetObject))
+                    continue;
+
+                if (bestSensor == null || priority > bestPriority)
+                {
+                    bestSensor = radar;
+                    bestPriority = priority;
                 }
             }
 
-            // Otherwise, assign targetObject to the first active associated sensor (such as an injected remote AWACS/consort radar)
-            foreach (SensorSystem sensor in instance._vwp._associatedSensors)
+            if (bestSensor != null)
             {
-                if (sensor == null || !sensor.IsOn.Value || sensor.IsDestroyed || sensor.Inoperable.Value)
-                    continue;
-                if (sensor is SensorSystemRadar assocRadar
-                    && (CecCapability.IsAwacsRadar(assocRadar) || CecCapability.IsCecMultifunctionRadar(assocRadar)))
-                {
-                    CecCapability.EnsureMidCourseChannels(assocRadar);
-                }
-                if (ap != null && !sensor.CanGuideAmmo(ap))
-                    continue;
-                if (!sensor.HasFreeTargetChannels(targetObject) || !sensor.HasFreeWeaponChannels())
-                    continue;
-                if (sensor is SensorSystemRadar radar && !CecCapability.RadarCanSee(radar, targetObject))
-                    continue;
-
-                sensor.SetPrelaunchObject(targetObject);
-                sensor._restPositionReached = false;
+                bestSensor.SetPrelaunchObject(targetObject);
+                bestSensor._restPositionReached = false;
                 instance._sensorPreLaunchAligned = true;
-                break;
             }
         }
 
@@ -402,17 +661,32 @@ namespace CecMod.Patches
                 bool currentWasAutoEnabledFromEmcon = currentIsLocal
                     && launcher?._sensorsToTurnOff != null
                     && launcher._sensorsToTurnOff.Contains(current);
+                bool launcherInEmcon = launcher != null && CecCapability.IsPlatformInAirRadarEmcon(launcher);
+                bool localGuiderDisallowed = currentIsLocal && (currentWasAutoEnabledFromEmcon || launcherInEmcon);
+                bool isSarh = CecCapability.IsSarhMissile(m._ap);
+                bool hasMccDatalink = m._ap._midCourseCorrection != null && m._ap._midCourseCorrection.IsDatalink;
+                bool currentHostInEmcon = current?._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(current._baseObject);
 
                 if (EgBridge.IsActive
                     && current != null
                     && !current.IsDestroyed
                     && !current.Inoperable.Value
                     && current.IsOn.Value
-                    && !currentWasAutoEnabledFromEmcon
+                    && !localGuiderDisallowed
+                    && !currentHostInEmcon
                     && EgBridge.IsDatalinkCarrier(current)
                     && current.CanGuideAmmo(m._ap)
                     && CecCapability.RadarCanReachMissile(current, m))
                 {
+                    if (!currentIsLocal)
+                    {
+                        if (CecCapability.IsAwacsRadar(current) || CecCapability.IsCecMultifunctionRadar(current))
+                            CecCapability.EnsureMidCourseChannels(current);
+                        CecPlugin.Log.LogInfo(
+                            $"[CEC] Launch-on-Remote: '{m.getObjectIniName()}' (#{m.UniqueID}) from '{launcher?.getName() ?? "?"}' " +
+                            $"guided by remote '{current._baseObject?.getName() ?? "?"}' ({current._systemName}) " +
+                            $"[{CecCapability.GetPlatformProfile(launcher).CecTier} -> {CecCapability.GetPlatformProfile(current._baseObject).CecTier}].");
+                    }
                     // Keep the mid-course DatalinkCarrier (e.g. eu_AEGIS_BL9) even if target is OTH;
                     // ExtendedGuidance.Runtime.Illuminator / HandoffPatch will reserve terminal CW illumination when due.
                     return;
@@ -422,16 +696,25 @@ namespace CecMod.Patches
                     && !current.IsDestroyed
                     && !current.Inoperable.Value
                     && current.IsOn.Value
+                    && !localGuiderDisallowed
+                    && !currentHostInEmcon
                     && current.CanGuideAmmo(m._ap)
-                    && CecCapability.RadarCanSee(current, target);
+                    && CecCapability.RadarCanSee(current, target)
+                    && (!CecCapability.IsPureCwDishIlluminator(current._systemName)
+                        || CecCapability.CooperatorSeesTarget(current._baseObject, target))
+                    && (!isSarh || EgBridge.IsDatalinkCarrier(current)
+                        || CecCapability.CanRadarIlluminateSarh(current, m._ap, launcher));
 
-                if (current != null && currentCanSee && !currentWasAutoEnabledFromEmcon)
+                if (current != null && currentCanSee)
                 {
                     if (!currentIsLocal)
                     {
                         if (CecCapability.IsAwacsRadar(current) || CecCapability.IsCecMultifunctionRadar(current))
                             CecCapability.EnsureMidCourseChannels(current);
-                        EgBridge.SetActiveEgIlluminator(m, current);
+                        if (EgBridge.CanEgIlluminate(current))
+                            EgBridge.SetActiveEgIlluminator(m, current);
+                        else
+                            EgBridge.SetActiveEgIlluminator(m, null);
                         CecPlugin.Log.LogInfo(
                             $"[CEC] Launch-on-Remote: '{m.getObjectIniName()}' (#{m.UniqueID}) from '{launcher?.getName() ?? "?"}' " +
                             $"guided by remote '{current._baseObject?.getName() ?? "?"}' ({current._systemName}) " +
@@ -442,13 +725,37 @@ namespace CecMod.Patches
 
                 SensorSystemRadar bestRemote = null;
                 float bestDistSq = float.MaxValue;
+                int bestPriority = -1;
 
                 foreach (SensorSystem s in m._weaponSystem._vwp._associatedSensors)
                 {
                     if (!(s is SensorSystemRadar candidate) || candidate == current)
                         continue;
+                    if ((launcherInEmcon || localGuiderDisallowed) && candidate._baseObject == launcher)
+                        continue;
                     if (!CecCapability.CanRadarGuideWeapon(candidate))
                         continue;
+
+                    int priority = 1;
+                    if (isSarh)
+                    {
+                        if (EgBridge.IsActive && hasMccDatalink)
+                        {
+                            if (EgBridge.IsDatalinkCarrier(candidate))
+                                priority = 2;
+                            else if (CecCapability.CanRadarIlluminateSarh(candidate, m._ap, launcher)
+                                     && EgBridge.CanEgIlluminate(candidate))
+                                priority = 1;
+                            else
+                                continue;
+                        }
+                        else
+                        {
+                            if (!CecCapability.CanRadarIlluminateSarh(candidate, m._ap, launcher))
+                                continue;
+                        }
+                    }
+
                     if (CecCapability.IsAwacsRadar(candidate) || CecCapability.IsCecMultifunctionRadar(candidate))
                         CecCapability.EnsureMidCourseChannels(candidate);
                     if (!candidate.CanGuideAmmo(m._ap))
@@ -459,15 +766,16 @@ namespace CecMod.Patches
                         continue;
 
                     float distSq = (candidate._baseObject.transform.position - target.transform.position).sqrMagnitude;
-                    if (distSq < bestDistSq)
+                    if (priority > bestPriority || (priority == bestPriority && distSq < bestDistSq))
                     {
+                        bestPriority = priority;
                         bestDistSq = distSq;
                         bestRemote = candidate;
                     }
                 }
 
                 if (bestRemote == null)
-                    bestRemote = CecCapability.FindHandoffRadar(m);
+                    bestRemote = CecCapability.FindHandoffRadar(m, requireTerminalIlluminator: isSarh && (!EgBridge.IsActive || !hasMccDatalink));
 
                 if (bestRemote == null)
                     return;
@@ -483,6 +791,15 @@ namespace CecMod.Patches
                 if (current != null)
                 {
                     current.FreeChannels(target, m);
+                    if (localGuiderDisallowed)
+                    {
+                        current._preLaunchTargetObject = null;
+                        if (!current.isBusy() && current._associatedWeapons.Count == 0)
+                        {
+                            current._isGuiding = false;
+                            current._restPositionReached = true;
+                        }
+                    }
                     if (currentWasAutoEnabledFromEmcon && !current.isBusy())
                     {
                         current.Disable(allowMessage: false);
@@ -494,10 +811,13 @@ namespace CecMod.Patches
                 bestRemote._isGuiding = true;
                 bestRemote._restPositionReached = false;
                 bestRemote._preLaunchTargetObject = null;
-                bestRemote.setTargetObject(target);
+                bestRemote.setTargetObject(bestRemote.getMode() == SensorSystemRadar.Mode.Illuminate ? target : (ObjectBase)m);
                 m._seeker?.setGuidingSystem(bestRemote);
                 m._seeker?.setCurrentTarget(target);
-                EgBridge.SetActiveEgIlluminator(m, bestRemote);
+                if (EgBridge.CanEgIlluminate(bestRemote))
+                    EgBridge.SetActiveEgIlluminator(m, bestRemote);
+                else
+                    EgBridge.SetActiveEgIlluminator(m, null);
                 m.ConnectionLost.Value = false;
                 m.ConnectionLostForever.Value = false;
 

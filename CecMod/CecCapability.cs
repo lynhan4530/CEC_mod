@@ -775,6 +775,7 @@ namespace CecMod
         private static bool ConsortHasIlluminatorForTarget(ObjectBase shooter, ObjectBase consort, SarhIllumFamily reqFam, ObjectBase target)
         {
             if (consort == null || consort == shooter || consort.IsDestroyed) return false;
+            if (IsPlatformInAirRadarEmcon(consort)) return false;
 
             InteractionTier interaction = EvaluateInteraction(shooter, consort);
             if (interaction != InteractionTier.Tier1_FullCec &&
@@ -803,7 +804,7 @@ namespace CecMod
 
                 if (!r.HasFreeChannels()) continue;
                 bool canSee = RadarCanSee(r, target)
-                    && (r.IsOn.Value || !IsPureCwDishIlluminator(r._systemName) || HasLocalRadarSight(consort, target));
+                    && (!IsPureCwDishIlluminator(r._systemName) || CooperatorSeesTarget(consort, target));
                 if (canSee)
                     return true;
             }
@@ -819,6 +820,31 @@ namespace CecMod
                 return false;
             if (IsPlatformInAirRadarEmcon(r._baseObject))
                 return false;
+            return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="r"/> is a physical SARH targeting/CW illuminator (not AWACS or synthetic datalink)
+        /// compatible with <paramref name="ap"/>'s required SARH illumination family.
+        /// </summary>
+        public static bool CanRadarIlluminateSarh(SensorSystemRadar r, AmmunitionParameters ap, ObjectBase launcher = null)
+        {
+            if (r == null || r.IsDestroyed || r.Inoperable.Value || r._radar?._rp == null)
+                return false;
+            if (IsAwacsRadar(r) || IsSyntheticDatalinkSensor(r))
+                return false;
+
+            SarhIllumFamily rFam = GetSarhFamily(r);
+            if (r._type != SensorSystemRadar.RadarType.Targeting && rFam == SarhIllumFamily.None)
+                return false;
+
+            SarhIllumFamily reqFam = ap != null ? GetMissileProfile(ap).RequiredSarhFamily : SarhIllumFamily.None;
+            if (reqFam == SarhIllumFamily.None && launcher != null)
+                reqFam = GetRequiredSarhFamily(launcher);
+
+            if (reqFam != SarhIllumFamily.None && rFam != reqFam)
+                return false;
+
             return true;
         }
 
@@ -890,21 +916,21 @@ namespace CecMod
                     : (m.getFlightStage() == WeaponBase.FlightStage.TerminalApproach);
                 bool needsTerminalNow = !hasMccDatalink || inTerminal;
 
-                SarhIllumFamily rFam = GetSarhFamily(candidateRadar);
                 if (needsTerminalNow)
                 {
-                    if (IsAwacsRadar(candidateRadar) || IsSyntheticDatalinkSensor(candidateRadar))
-                        return false;
-                    if (candidateRadar._type != SensorSystemRadar.RadarType.Targeting && rFam == SarhIllumFamily.None)
+                    if (!CanRadarIlluminateSarh(candidateRadar, m._ap, shooter))
                         return false;
                 }
+                else
+                {
+                    SarhIllumFamily rFam = GetSarhFamily(candidateRadar);
+                    SarhIllumFamily reqFam = missileProfile.RequiredSarhFamily;
+                    if (reqFam == SarhIllumFamily.None && shooter != null)
+                        reqFam = GetRequiredSarhFamily(shooter);
 
-                SarhIllumFamily reqFam = missileProfile.RequiredSarhFamily;
-                if (reqFam == SarhIllumFamily.None && shooter != null)
-                    reqFam = GetRequiredSarhFamily(shooter);
-
-                if (reqFam != SarhIllumFamily.None && !IsSyntheticDatalinkSensor(candidateRadar) && rFam != reqFam)
-                    return false;
+                    if (reqFam != SarhIllumFamily.None && !IsSyntheticDatalinkSensor(candidateRadar) && rFam != reqFam)
+                        return false;
+                }
             }
 
             return true;
@@ -959,13 +985,8 @@ namespace CecMod
                 for (int i = 0; i < systems.Count; i++)
                 {
                     if (!(systems[i] is SensorSystemRadar r)) continue;
-                    if (requireTerminalIlluminator)
-                    {
-                        if (IsSyntheticDatalinkSensor(r) || IsAwacsRadar(r))
-                            continue;
-                        if (r._type != SensorSystemRadar.RadarType.Targeting && GetSarhFamily(r) == SarhIllumFamily.None)
-                            continue;
-                    }
+                    if (requireTerminalIlluminator && !CanRadarIlluminateSarh(r, missile._ap, shooter))
+                        continue;
                     if (!CanPerformMidCourseHandoff(missile, r))
                         continue;
 
@@ -1535,7 +1556,7 @@ namespace CecMod
             return CanPerformLaunchOnRemote(shooter, ap, target);
         }
 
-        private static bool CooperatorSeesTarget(ObjectBase cooperator, ObjectBase target)
+        internal static bool CooperatorSeesTarget(ObjectBase cooperator, ObjectBase target)
         {
             if (cooperator?._obp?._sensorSystems == null || target == null || target.IsDestroyed)
                 return false;
@@ -1640,6 +1661,7 @@ namespace CecMod
             void Check(ObjectBase consort)
             {
                 if (consort == null || consort == shooter || consort.IsDestroyed) return;
+                if (IsPlatformInAirRadarEmcon(consort)) return;
                 InteractionTier tier = EvaluateInteraction(shooter, consort);
                 if (tier != InteractionTier.Tier1_FullCec && tier != InteractionTier.SatcomGlobal && tier != InteractionTier.Tier1_IntraFlightOnly)
                     return;
@@ -1665,7 +1687,7 @@ namespace CecMod
 
                     if (!r.HasFreeChannels()) continue;
                     bool canSee = RadarCanSee(r, target)
-                        && (r.IsOn.Value || !IsPureCwDishIlluminator(r._systemName) || HasLocalRadarSight(consort, target));
+                        && (!IsPureCwDishIlluminator(r._systemName) || CooperatorSeesTarget(consort, target));
                     if (!canSee) continue;
 
                     float distSq = (r._mountObject.transform.position - target.transform.position).sqrMagnitude;

@@ -9,7 +9,7 @@
 | [TC-03](#tc-03--multi-missile-salvo-channel-expansion-32-ch-check) | A | Multi-Missile Salvo Channel Expansion (32-Ch Check) | `PASS` | User confirmed passed in-game. |
 | [TC-04](#tc-04--pla-a-shoot-b-guide-jsidls) | A | PLA "A-Shoot-B-Guide" (JSIDLS) | `PASS (Note)` | Cooperative JSIDLS guidance from `KJ-600` confirmed via `ExtendedGuidance` hint on follow-up `F-16` test near ship; `KJ-600` did not detect `Tu-95RT` at `77.6 nm` inside its radar ring. |
 | [TC-05](#tc-05--tier-1-link-16-upgrade-euro--allied) | A | Tier 1 Link 16 Upgrade (Euro / Allied) | `PASS` | User confirmed passed in-game. |
-| [TC-06](#tc-06--sarh-forward-pass-with-consort-illuminator) | B | SARH Forward Pass with Consort Illuminator | `FAIL` | Hover shows `Forward Pass: DDG-75 Donald Cook [SPG-62]` and `DDG-78 Porter` fires `RIM-66M-5`, but shooter still turns its own radar ON and guides the missile instead of staying EMCON / handing off. (Also keep note on base `DDG-51` unit type.) |
+| [TC-06](#tc-06--sarh-forward-pass-with-consort-illuminator) | B | SARH Forward Pass with Consort Illuminator | `PASS` | User confirmed passed in-game (`DDG-78 Porter` stays EMCON while forward consort `DDG-75 Donald Cook` guides/illuminates `RIM-66M-5`; keep follow-up note on base `DDG-51` CSV variants). |
 | [TC-07](#tc-07--sarh-blocked-when-only-awacs-sees-target) | B | SARH Blocked When Only AWACS Sees Target | `PASS (Needs Enhancement)` | SARH (`RIM-66M-5`) properly blocked when only AWACS (`VAW-113`) tracks target (`Sensor Range: 0/68Nmi`, `Can't See Target`); user flagged hover UI hint (`Cued via USG-2/3 CEC (Local radar lock required to fire)`) for review/refinement. |
 | [TC-08](#tc-08--sarh-family-isolation-no-cross-band-illumination) | B | SARH Family Isolation (No Cross-Band Illumination) | `PASS` | User confirmed passed in-game. |
 | [TC-09](#tc-09--tier-2-awacs-e-3a-blocks-launch-on-remote) | C | Tier 2 AWACS (`E-3A`) Blocks Launch-on-Remote | `PASS` | User confirmed passed in-game. |
@@ -96,7 +96,7 @@
 ## Group B — Tier 1 Forward Pass SARH (*Project Mountain Top*)
 
 ### TC-06 — SARH Forward Pass with Consort Illuminator
-- **Status**: `FAIL`
+- **Status**: `PASS`
 - **Setup**: Rear `DDG-51` (`SM-2MR`, EMCON or OTH) + forward `DDG-51` / `CG-47` (radar ON, within radar horizon of target, `SPG-62` standby/free) vs. low-altitude target.
 - **Steps**: Hover target with rear ship's `SM-2`, then fire.
 - **Expected Result**:
@@ -105,7 +105,8 @@
   - In terminal window (or immediately without EG), forward consort energizes `SPG-62` synchronously and illuminates target to impact.
 - **Result / Notes**:
   - Tested on `2026-11-22`:
-    - **Latest Run (`DDG-78 Porter` `#1001` + `DDG-75 Donald Cook` `#1002` at `58.96 nm` vs. `#7001 (AEW&C) A-50`, see `media_1795295104694_9fa52080.jpg`)**: Hover tooltip correctly shows green `Forward Pass: DDG-75 Donald Cook [SPG-62]` (`Hit Chance: 78%`, `Time Of Flight: 143S`, `No-Escape Range: 69/70Nmi`) and `RIM-66M-5` (`#1003`, `15.76 nm`) launches — **however, the shooter (`DDG-78 Porter`) still turns its own radar ON and guides the missile instead of staying in EMCON / letting forward consort guide it.**
+    - **Re-test after fix**: User confirmed passed in-game (`DDG-78 Porter` stays in EMCON and forward consort `DDG-75 Donald Cook` guides/illuminates `RIM-66M-5` end-to-end).
+    - **Previous Run (`DDG-78 Porter` `#1001` + `DDG-75 Donald Cook` `#1002` at `58.96 nm` vs. `#7001 (AEW&C) A-50`, see `media_1795295104694_9fa52080.jpg`)**: Hover tooltip showed green `Forward Pass: DDG-75 Donald Cook [SPG-62]`, but prior to the fix the shooter still turned its own radar ON and guided the missile.
     - **Previous Note (`DDG-51` variants, see `media_1795294346720_079bcd8d.jpg` & `media_1795294616416_26206915.jpg`)**: Run 1 with base `DDG-51 Arleigh Burke` (`RIM-66M-5`) required local LOS to fire SM-2 (check/specify exact unit variants eligible for Tier 1 Forward Pass later). `DDG-51` (2020 variant) with `RIM-66P` fired OTH when forward radar was ON.
 
 ---

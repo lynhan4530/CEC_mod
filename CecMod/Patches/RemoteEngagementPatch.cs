@@ -111,7 +111,8 @@ namespace CecMod.Patches
     internal static class RemoteEngagementPatch
     {
         /// <summary>
-        /// Filters <see cref="SensorSystem.CanGuideAmmo"/> through <see cref="CecCapability.CanSensorGuideAmmo"/>.
+        /// Filters <see cref="SensorSystem.CanGuideAmmo"/> through <see cref="CecCapability.CanSensorGuideAmmo"/>,
+        /// and scopes <c>ExtendedGuidance.Runtime.Illuminator</c> searches to compatible non-EMCON illuminators.
         /// </summary>
         [HarmonyPatch(typeof(SensorSystem), nameof(SensorSystem.CanGuideAmmo))]
         [HarmonyPostfix]
@@ -123,6 +124,55 @@ namespace CecMod.Patches
                     return;
 
                 __result = CecCapability.CanSensorGuideAmmo(__instance, ap);
+                if (!__result || EgBridge.ActiveEgIlluminatorMissile == null || !(__instance is SensorSystemRadar illumRadar))
+                    return;
+
+                Missile illumMissile = EgBridge.ActiveEgIlluminatorMissile;
+                ObjectBase trueLauncher = illumMissile._weaponSystem?._baseObject ?? illumMissile._launchPlatform;
+                AmmunitionParameters effectiveAp = illumMissile._ap ?? ap;
+
+                if (!CecCapability.CanRadarIlluminateSarh(illumRadar, effectiveAp, trueLauncher))
+                {
+                    __result = false;
+                    return;
+                }
+
+                ObjectBase illumHost = illumRadar._baseObject;
+                if (illumHost != null)
+                {
+                    var hostTier = CecCapability.GetPlatformProfile(illumHost).CecTier;
+                    if ((hostTier == CecTier.Tier1 || hostTier == CecTier.Tier2)
+                        && CecCapability.IsPlatformInAirRadarEmcon(illumHost))
+                    {
+                        __result = false;
+                        return;
+                    }
+                }
+
+                if (trueLauncher != null && illumHost != null && illumHost != trueLauncher)
+                {
+                    var interaction = CecCapability.EvaluateInteraction(trueLauncher, illumHost);
+                    if (interaction != InteractionTier.Tier1_FullCec
+                        && interaction != InteractionTier.Tier2_MidcourseRescue
+                        && interaction != InteractionTier.SatcomGlobal
+                        && interaction != InteractionTier.Tier1_IntraFlightOnly)
+                    {
+                        __result = false;
+                        return;
+                    }
+
+                    if (!trueLauncher.IsDestroyed)
+                    {
+                        float linkDist = CecCapability.HorizontalDistance(
+                            trueLauncher.transform.position,
+                            illumHost.transform.position);
+                        if (!CecCapability.ArePlatformsInDatalinkReach(trueLauncher, illumHost, linkDist))
+                        {
+                            __result = false;
+                            return;
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -515,6 +565,7 @@ namespace CecMod.Patches
         /// </summary>
         [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.HasFreeGuidingSensors), new Type[] { typeof(Ammunition), typeof(ObjectBase), typeof(bool) })]
         [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
         private static void HasFreeGuidingSensors_Prefix(
             WeaponSystem __instance,
             Ammunition ammo,
@@ -522,6 +573,7 @@ namespace CecMod.Patches
             out LaunchTimeCecPatch.PreLaunchEmconState __state)
         {
             __state = default;
+            __state.PreviousProtectedUnit = LaunchTimeCecPatch.PushEmconProtection(null);
             try
             {
                 if (__instance == null
@@ -576,17 +628,27 @@ namespace CecMod.Patches
             }
         }
 
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.HasFreeGuidingSensors), new Type[] { typeof(Ammunition), typeof(ObjectBase), typeof(bool) })]
+        [HarmonyFinalizer]
+        private static Exception HasFreeGuidingSensors_Finalizer(LaunchTimeCecPatch.PreLaunchEmconState __state, Exception __exception)
+        {
+            LaunchTimeCecPatch.PopEmconProtection(__state.PreviousProtectedUnit);
+            return __exception;
+        }
+
         /// <summary>
         /// Refreshes consort/AWACS radars and prevents <see cref="WeaponSystem.hasFreeWeaponChannel"/>
         /// from auto-enabling local radars when an active EMCON shooter has Launch-on-Remote coverage.
         /// </summary>
         [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.hasFreeWeaponChannel))]
         [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
         private static void HasFreeWeaponChannel_Prefix(
             WeaponSystem __instance,
             out LaunchTimeCecPatch.PreLaunchEmconState __state)
         {
             __state = default;
+            __state.PreviousProtectedUnit = LaunchTimeCecPatch.PushEmconProtection(null);
             try
             {
                 if (__instance == null
@@ -637,6 +699,14 @@ namespace CecMod.Patches
             {
                 CecPlugin.Log.LogError($"[CEC] HasFreeWeaponChannel_Postfix exception: {ex}");
             }
+        }
+
+        [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.hasFreeWeaponChannel))]
+        [HarmonyFinalizer]
+        private static Exception HasFreeWeaponChannel_Finalizer(LaunchTimeCecPatch.PreLaunchEmconState __state, Exception __exception)
+        {
+            LaunchTimeCecPatch.PopEmconProtection(__state.PreviousProtectedUnit);
+            return __exception;
         }
 
         [HarmonyPatch(typeof(WeaponSystem), nameof(WeaponSystem.HasFreeWeaponChannels), new Type[] { typeof(AmmunitionParameters) })]
