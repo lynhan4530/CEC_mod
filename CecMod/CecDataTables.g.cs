@@ -31,7 +31,7 @@ namespace CecMod
         RuFortTvm = 1 << 8,        // RuNaval / Fort-TVM
         Tks2Apd518 = 1 << 9,       // TKS-2 / APD-518 (Russian Air)
         RuNavalTactical = 1 << 10, // RuNaval Tactical / C4I
-        SatcomUplink = 1 << 11     // SATCOM / GPS link (eu_GPS_Receiver)
+        SatcomUplink = 1 << 11     // Dedicated SATCOM uplink
     }
 
     public enum InteractionTier
@@ -813,7 +813,7 @@ namespace CecMod
             { "eu_CEROS-200_CWI", new RadarProfile("eu_CEROS-200_CWI", "CEROS-200 CWI", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.UsNatoXBandCw, false, false, true, false) },
             { "eu_EMPAR", new RadarProfile("eu_EMPAR", "EMPAR", CecTier.Tier1, DatalinkStandard.None, SarhIllumFamily.None, false, false, false, true) },
             { "eu_EMPAR_2", new RadarProfile("eu_EMPAR_2", "EMPAR (Guidance channel)", CecTier.Tier1, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, true) },
-            { "eu_GPS_Receiver", new RadarProfile("eu_GPS_Receiver", "GPS receiver", CecTier.Tier3, DatalinkStandard.SatcomUplink, SarhIllumFamily.None, false, true, false, false) },
+            { "eu_GPS_Receiver", new RadarProfile("eu_GPS_Receiver", "GPS receiver", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, false) },
             { "eu_Herakles", new RadarProfile("eu_Herakles", "Herakles", CecTier.Tier1, DatalinkStandard.None, SarhIllumFamily.None, false, false, false, true) },
             { "eu_Herakles+", new RadarProfile("eu_Herakles+", "Herakles+", CecTier.Tier1, DatalinkStandard.None, SarhIllumFamily.None, false, false, false, true) },
             { "eu_JUWL", new RadarProfile("eu_JUWL", "JUWL", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, false) },
@@ -874,16 +874,16 @@ namespace CecMod
             { "eu_UYK-44", new RadarProfile("eu_UYK-44", "AN/UYK-44", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, false) },
             { "eu_UYK-44B", new RadarProfile("eu_UYK-44B", "AN/UYK-44B", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, false) },
             { "eu_wm25", new RadarProfile("eu_wm25", "WM.25", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.UsNatoXBandCw, false, false, false, false) },
-            { "F16_GPS_Link", new RadarProfile("F16_GPS_Link", "F16_GPS_Link", CecTier.Tier3, DatalinkStandard.SatcomUplink, SarhIllumFamily.None, false, true, false, false) },
+            { "F16_GPS_Link", new RadarProfile("F16_GPS_Link", "F16_GPS_Link", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, false) },
             { "FFM_Multifunction_Radar_Proxy", new RadarProfile("FFM_Multifunction_Radar_Proxy", "Multifunction radar", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.UsNatoXBandCw, false, false, false, false) },
             { "GE_ERIEYE_ER", new RadarProfile("GE_ERIEYE_ER", "Saab Erieye ER", CecTier.Tier2, DatalinkStandard.None, SarhIllumFamily.None, true, false, false, false) },
-            { "GPS_Link", new RadarProfile("GPS_Link", "GPS_Link", CecTier.Tier3, DatalinkStandard.SatcomUplink, SarhIllumFamily.None, false, true, false, false) },
+            { "GPS_Link", new RadarProfile("GPS_Link", "GPS_Link", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, false) },
             { "HAF_APG68_V9", new RadarProfile("HAF_APG68_V9", "HAF_APG68_V9", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, false, false, false) },
             { "HAF_APG68_V9_ADV", new RadarProfile("HAF_APG68_V9_ADV", "HAF_APG68_V9_ADV", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, false, false, false) },
             { "Herakles", new RadarProfile("Herakles", "Herakles", CecTier.Tier1, DatalinkStandard.None, SarhIllumFamily.None, false, false, false, true) },
             { "Herakles+", new RadarProfile("Herakles+", "Herakles+", CecTier.Tier1, DatalinkStandard.None, SarhIllumFamily.None, false, false, false, true) },
             { "hyuga_FCS3_Search", new RadarProfile("hyuga_FCS3_Search", "FCS-3 Multifunction Radar", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.UsNatoXBandCw, false, false, false, false) },
-            { "IAF_GPS_Link", new RadarProfile("IAF_GPS_Link", "IAF_GPS_Link", CecTier.Tier3, DatalinkStandard.SatcomUplink, SarhIllumFamily.None, false, true, false, false) },
+            { "IAF_GPS_Link", new RadarProfile("IAF_GPS_Link", "IAF_GPS_Link", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, false) },
             { "KG_R2_SPY1D", new RadarProfile("KG_R2_SPY1D", "AN/SPY-1D", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, false, false, false) },
             { "Link-16_Receiver", new RadarProfile("Link-16_Receiver", "Link-16_Receiver", CecTier.Tier3, DatalinkStandard.None, SarhIllumFamily.None, false, true, false, false) },
             { "MESA", new RadarProfile("MESA", "MESA", CecTier.Tier2, DatalinkStandard.None, SarhIllumFamily.None, true, false, false, false) },

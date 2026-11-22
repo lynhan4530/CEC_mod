@@ -18,7 +18,7 @@
 | [TC-12](#tc-12--tier-0-standalone--ir-munitions) | C | Tier 0 Standalone / IR Munitions | `PASS` | User confirmed passed in-game. |
 | [TC-13](#tc-13--stealth-intra-flight-isolation-madlifdl) | D | Stealth Intra-Flight Isolation (`MADL` / `IFDL`) | `PASS` | User confirmed passed in-game (same-flight F-35 fires via `[MADL | Tier 1]`; separate-flight F-35 and non-gateway `F/A-18F` Block II blocked with yellow Link 16 cue; `F/A-18F Block III` fires as gateway). |
 | [TC-14](#tc-14--gateway-bridging-e-2d--fa-18f-blk-iii) | D | Gateway Bridging (`E-2D` / `F/A-18F Blk III`) | `PASS` | User confirmed passed in-game (airborne gateway in radio reach bridges cross-flight `MADL` / `(GW)` even with AWACS search radar OFF). |
-| [TC-15](#tc-15--datalink-horizon--reach-limits--ship-satcom) | D | Datalink Horizon & Reach Limits + Ship SATCOM | `Pending` | — |
+| [TC-15](#tc-15--datalink-horizon--reach-limits--ship-satcom) | D | Datalink Horizon & Reach Limits + Ship SATCOM | `PASS` | User confirmed passed in-game (Option A strict SATCOM: passive GPS helpers excluded from `SatcomUplink`/`HasSatcomTransceiver`; fixed `MinDatalinkMastUnity = 0.30f` and orbital dummy mount filter `> 5f`; verified air-to-air >300 nmi blocked / <300 nmi allowed, ship-to-ship >150 nmi Naval SATCOM unlimited, and ship-to-E-2D ~222.8 nmi radio horizon; fixed `Ctrl+F10` mouse freeze, F10 button overlap, Target Evaluation, and added live `Weapon State` / `Firing Arc` readout). |
 | [TC-16](#tc-16--pitbull-terminal-localterminalonlytrue-clean-log) | E | Pitbull Terminal (`LocalTerminalOnly=True`) Clean Log | `PASS` | User confirmed passed in-game. |
 | [TC-17](#tc-17--sunken-launcher-survivor-takeover) | E | Sunken Launcher Survivor Takeover | `PASS` | User confirmed passed in-game. |
 | [TC-18](#tc-18--consort-guidance-hull-raycast-check) | E | Consort Guidance Hull Raycast Check | `PASS` | User confirmed passed in-game. |
@@ -219,16 +219,19 @@
 ---
 
 ### TC-15 — Datalink Horizon & Reach Limits + Ship SATCOM
-- **Status**: `Pending`
+- **Status**: `PASS`
 - **Setup**:
-  1. Air-to-air: `F/A-18F` and `E-2D` separated by **> 300 nmi**.
-  2. Ship-to-ship: two `DDG-51`s separated by **> 150 nmi**.
+  1. Air-to-air: `F/A-18F` and `E-2D` separated by **> 300 nmi** and **< 300 nmi**.
+  2. Ship-to-ship: two Tier 1 `DDG-51`s separated by **> 150 nmi**.
+  3. Ship-to-air: Tier 1 `DDG-51` (`EMCON`) + `E-2D` (30,000 ft) across the **~222.8 nmi** radio horizon.
 - **Steps**: Check `Ctrl+F10` overlay `Best Consort` reach & attempt remote engagement.
 - **Expected Result**:
-  - Aircraft pair > 300 nmi: **out of datalink reach** (blocked).
-  - Ship-to-ship pair > 150 nmi: **in reach** (unlimited naval SATCOM rule).
-  - `eu_GPS_Receiver` / SATCOM unit: planetary reach (`SatcomGlobal`).
-- **Result / Notes**: _Not tested yet._
+  - Aircraft pair > 300 nmi: **out of datalink reach** (`BLOCKED`); < 300 nmi: **in reach** (`ALLOWED`).
+  - Ship-to-ship pair > 150 nmi: **in reach** (`SATCOM (Unlimited)` naval SATCOM rule).
+  - Ship-to-air (`Burke` + `E-2D` at 30,000 ft): bounded by real 4/3-Earth radio horizon (~222.8 nmi); passive GPS weapon helpers (`GPS_Receiver`, `eu_GPS_Receiver`, `GPS_Link`, `F16_GPS_Link`, `IAF_GPS_Link`) do not grant SATCOM bypass — only dedicated SATCOM transceivers and `Vessel` <-> `Vessel` links have unlimited reach.
+- **Result / Notes**:
+  - **Confirmation (`2026-11-23`)**: User confirmed all three checks passed in-game following Option A strict SATCOM fixes in `tools/generate_cec_tables.py` (`CecDataTables.g.cs`) and `CecCapability.cs` (`HasSatcomTransceiver`, `MinDatalinkMastUnity = 0.30f`, orbital dummy mount filter `> 5f`, `ComputeHorizonReachUnity` / `GetDatalinkMaxReachUnity` / `GetDatalinkMaxReachNm`, `FindBestTrackingCooperator(..., enforceReach)`), plus `CecDebugOverlay.cs` / `RemoteEngagementPatch.cs` (`Ctrl+F10` mouse release, F10 button placement, `Target Evaluation`, and live `Weapon State` / `Firing Arc` telemetry).
+  - *Diagnosis note (`F/A-18F` crossing-shot hold-fire during Test 1)*: Traced to third-party *US Naval Aviation* `usn_fa-18f_blk3.ini` `FiringArcs=-2,2` deadlocking against vanilla `AlignUnitToTarget` lead-point pursuit (left untouched per scope; surfaced directly via the new `Ctrl+F10` `Weapon State` & `Target Bearing` vs `Firing Arc` telemetry).
 
 ---
 

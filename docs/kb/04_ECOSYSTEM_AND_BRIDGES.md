@@ -12,7 +12,7 @@ A core goal of `CecMod` is **zero `.ini` overrides** and seamless runtime compat
   - `CecPlugin.IsLoaded` + `Chainloader.PluginInfos` checks prevent double-initialization if both copies are present.
 
 ## 2. `ExtendedGuidance.dll` Runtime Bridge (`EgBridge.cs`)
-- **Target Mod**: `ExtendedGuidance` (`euromod.extended-guidance`, Workshop ID `3784474738`).
+- **Target Mod**: `ExtendedGuidance` (`euromod.extended-guidance`, Workshop ID `3784474738`, runtime compatibility verified through `v0.10.35`).
 - **Zero Compile-Time Dependency**: `CecMod.csproj` does **not** reference `ExtendedGuidance.dll`. `CecMod` compiles and runs identically whether or not `ExtendedGuidance` is installed or enabled in Anchor Chain preferences.
 - **Eager & Dynamic Detection**:
   - `EgBridge.Initialize(harmony)` watches `AppDomain.CurrentDomain.AssemblyLoad` for `"ExtendedGuidance"` and immediately probes `_ = IsActive;` at `CecPlugin.Awake()` so runtime Harmony hooks are installed before Mono JIT-compiles/inlines `ExtendedGuidance` wrapper methods (important because Anchor Chain loads `ExtendedGuidance` before `CecMod`).
@@ -49,6 +49,7 @@ A core goal of `CecMod` is **zero `.ini` overrides** and seamless runtime compat
 - `CecCapability.NormalizeRadarKey` and `tools/generate_cec_tables.py` (`normalize_key`) strip `" (P2027)"` during table generation and runtime lookups while leaving raw `_systemName` untouched for Sea Power's engine.
 - Both `05_Radars.csv` (e.g., `KLC-500 (P2027)` / `KLC-600 (P2027)` marked `AWACS: True` in v0.4.1; plus `Type 346 (P2027)`, `Type 346A (P2027)`, `Type 346B (P2027)`, `KJ-3000 AESA (P2027)`, `LJG-XX-054B-S (P2027)`, `LJQ-368 054B (P2027)`, and `Type 382 (P2027)` added for TC-04, along with `PlaJoint` on `KLC-500/600` variants and `PlanHhq9` on `LJG-346 (P2027)`) and normalized fallback aliases cover P2027 units automatically.
 
-## 4. Euromod SATCOM / GPS Weapons (Workshop ID `3629144864`)
-- Sensors such as `eu_GPS_Receiver`, `F16_GPS_Link`, `IAF_GPS_Link`, and `GPS_Link` map to `DatalinkStandard.SatcomUplink` in `generate_cec_tables.py`.
-- In `CecCapability`, `SatcomUplink` resolves to `InteractionTier.SatcomGlobal` and `HasSatcomTransceiver` grants planetary datalink reach across horizon limits.
+## 4. Euromod SATCOM & Passive GPS Weapon Helpers (Workshop ID `3629144864`)
+- Under strict real-world Option A doctrine (`TC-15`), passive GPS weapon-helper sensors (`eu_GPS_Receiver`, `GPS_Receiver`, `F16_GPS_Link`, `IAF_GPS_Link`, `GPS_Link`) are **excluded** from `DatalinkStandard.SatcomUplink` in `tools/generate_cec_tables.py` (`CecDataTables.g.cs`) and ignored by `CecCapability.HasSatcomTransceiver` so fighters/ships do not receive artificial planetary CEC reach from GPS munitions helpers.
+- Orbital dummy mounts placed high above the unit (`y - platform.transform.position.y > 5f`, such as `eu_GPS_Receiver` at `y=3500/5000` or `eu_2T_Datalink` at `y=3500`) are filtered out of `DatalinkMastHeight` so they cannot inflate line-of-sight horizon calculations.
+- Only genuine dedicated `"SATCOM"` transceivers (`SatcomUplink` -> `InteractionTier.SatcomGlobal`) and `Vessel` <-> `Vessel` naval SATCOM links bypass horizon limits.

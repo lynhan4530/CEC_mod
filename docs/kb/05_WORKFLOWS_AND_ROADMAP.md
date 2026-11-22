@@ -38,7 +38,7 @@ The authoritative real-world capability datasets live in [data/cec_tables/](file
   `stage_workshop.ps1` copies `CecMod.dll`, `CecMod.pdb`, `workshop/_info.ini`, and `workshop/preview.jpg` (enforcing Sea Power's `< 1,000,000` byte Workshop preview limit) into `dist/CecMod` and `<GameDir>\Sea Power_Data\StreamingAssets\CecMod`.
 
 ## 3. In-Game Verification & Logging
-- Open Sea Power's Developer Menu (`F10`) and click **CEC Datalink** (or **CEC** on the top developer toolbar, or press `Ctrl + F10`) to open `CecDebugOverlay` and inspect live Shooter Tier, Datalinks, EMCON state, Consort reach, and Hover Telemetry.
+- Open Sea Power's Developer Menu (`F10`) and click **CEC Datalink** (or **CEC** on the top developer toolbar, or press `Ctrl + F10`) to open `CecDebugOverlay` and inspect live Shooter Tier, Datalinks, EMCON state, Consort reach, Hover Telemetry, and live Weapon State (`_engageState`, `Target Bearing` vs `Firing Arc`).
 - Inspect `BepInEx/LogOutput.log` for `[CEC]` runtime entries (`Launch-on-Remote`, `Handoff`, `Terminal-Illum Handoff`, `Detected ExtendedGuidance assembly`).
 
 ## 4. Roadmap & Active Specs

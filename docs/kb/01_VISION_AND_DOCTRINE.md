@@ -31,7 +31,7 @@
 
 Plus 2 non-matrix special flags handled in `CecDataTables.QueryDatalinkMatrix`:
 - `RuNavalTactical` — RuNaval Tactical / C4I (evaluates to `Tier3_TrackRelay` when paired with `RuNavalTactical`, `RuFortTvm`, or `Tks2Apd518`; otherwise `Incompatible`).
-- `SatcomUplink` — SATCOM / GPS uplink (e.g., `eu_GPS_Receiver`); evaluates to `InteractionTier.SatcomGlobal`.
+- `SatcomUplink` — Dedicated SATCOM uplink (passive GPS weapon helpers such as `eu_GPS_Receiver` / `GPS_Receiver` are excluded); evaluates to `InteractionTier.SatcomGlobal`.
 
 ### Resolution Rules (`CecCapability.ResolveBestDatalinkPair`)
 Platforms often carry multiple datalinks (stored as a bitmask). For any `(shooter, consort)` pair, `ResolveBestDatalinkPair` evaluates every `(s1, s2)` standard combination and chooses the highest `InteractionTier` rank:
@@ -62,13 +62,13 @@ Implemented in `CecCapability.CanPerformLaunchOnRemote`:
     2. **Own-Ship Terminal Illumination CEC LOR**: When firing a SARH+Datalink (`AllowsLauncherGuidance`) missile via a Tier 1 remote tracker (such as `E-2D`), `HasOwnShipTerminalIlluminationForLor` / `FindOwnShipTerminalIlluminatorForLor` predicts intercept time using Sea Power's analytical kinematic solver (`Missile.CalculateMissileInterceptTimeAnalytical`, horizontal-only velocity projection holding observed `VisibleAltitude`) and verifies via terrain-aware `RadarCalculator.getRadarHorizon` that an own-ship compatible CW illuminator will have LOS through both `tIllumStart` and `tIntercept`. If the target stays permanently below the shooter's CW horizon at intercept (with no forward consort), OTH firing is held while the attack cursor remains unlocked so the player can pursue/engage with own ship sensors.
 
 ## 5. Datalink Reach & Physics Invariants
-Implemented in `CecCapability.ArePlatformsInDatalinkReach`:
+Implemented in `CecCapability.ArePlatformsInDatalinkReach`, `GetDatalinkMaxReachUnity`, and `GetDatalinkMaxReachNm`:
 1. **Ship-to-Ship (`Vessel` <-> `Vessel`)**: Returns `true` unconditionally (v0.4.1 naval SATCOM rule).
-2. **SATCOM Transceivers (`HasSatcomTransceiver`)**: Returns `true` unconditionally (checks `SatcomUplink` flag or `"GPS"` / `"SATCOM"` in sensor `_systemName`).
-3. **Airborne / Surface-to-Air Links**: Bounded by `Mathf.Min(horizon, maxInstrumented)`:
-   - `horizon = RadarCalculator.getRadarHorizon(Mathf.Max(h1, 20f), Mathf.Max(h2, 20f), visual: false, 0f)`
+2. **SATCOM Transceivers (`HasSatcomTransceiver`)**: Returns `true` unconditionally (checks `SatcomUplink` flag or `"SATCOM"` in operable sensor `_systemName`; passive `"GPS"` weapon helpers are excluded).
+3. **Airborne / Surface-to-Air Links**: Bounded by `Mathf.Min(horizon, maxInstrumented)` via `ComputeHorizonReachUnity`:
+   - `horizon = RadarCalculator.getRadarHorizon(Mathf.Max(h1, MinDatalinkMastUnity), Mathf.Max(h2, MinDatalinkMastUnity), visual: false, 0f)`, where `MinDatalinkMastUnity = 0.30f` (~20.2 m / ~66 ft in Unity Y units).
    - `GetMaxDatalinkRange`: `300 nmi` (`300f * 27.559496f`) if `Aircraft` or `Helicopter`; `150 nmi` (`150f * 27.559496f`) for surface units.
-   - `DatalinkMastHeight(consort, requireRadarOn: true)` requires the remote cooperator to have an operational, active (`IsOn.Value`) datalink-capable radar.
+   - `DatalinkMastHeight(consort, requireRadarOn: true)` requires the remote cooperator to have an operational, active (`IsOn.Value`) datalink-capable radar and skips `IsNonAirSearchHelperSensor`, `IsSyntheticDatalinkSensor`, and orbital dummy mounts (`y - platform.transform.position.y > 5f`).
 4. **Kinematics Invariant**: `CecMod` never modifies missile aerodynamics, drag, thrust, or `MissileSimulator.EstimateShot`.
 
 ## 6. Contextual Attack Hover Telemetry (Zero Map Clutter)

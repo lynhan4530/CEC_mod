@@ -77,8 +77,8 @@ def parse_datalinks(raw_str: str, entity_id: str = "") -> list:
     raw = (raw_str or "").strip()
     res = []
     
-    # Check GPS / SATCOM
-    if "gps" in raw.lower() or "gps" in entity_id.lower() or "satcom" in raw.lower():
+    # Check dedicated SATCOM (exclude passive GPS weapon helpers like GPS_Receiver / GPS_Link)
+    if "satcom" in raw.lower() or "satcom" in entity_id.lower():
         res.append("SatcomUplink")
     
     # CEC / USG
@@ -324,7 +324,7 @@ def generate_code(is_verify: bool = False):
     lines.append("        RuFortTvm = 1 << 8,        // RuNaval / Fort-TVM")
     lines.append("        Tks2Apd518 = 1 << 9,       // TKS-2 / APD-518 (Russian Air)")
     lines.append("        RuNavalTactical = 1 << 10, // RuNaval Tactical / C4I")
-    lines.append("        SatcomUplink = 1 << 11     // SATCOM / GPS link (eu_GPS_Receiver)")
+    lines.append("        SatcomUplink = 1 << 11     // Dedicated SATCOM uplink")
     lines.append("    }")
     lines.append("")
     lines.append("    public enum InteractionTier")

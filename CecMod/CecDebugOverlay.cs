@@ -19,6 +19,43 @@ namespace CecMod
 
         private static Rect _windowRect = new Rect(720f, 60f, 540f, 620f);
         private static Vector2 _scrollPos = Vector2.zero;
+        private bool _isMouseOver;
+
+        private static Type _attackingStateType;
+        private static System.Reflection.FieldInfo _attackingTargetItemField;
+        private static System.Reflection.PropertyInfo _attackingAmmoProp;
+        private static System.Reflection.PropertyInfo _attackingAmmoNameProp;
+
+        private static ObjectBase _lastHoveredShooter;
+        private static ObjectBase _lastHoveredTarget;
+        private static Ammunition _lastHoveredAmmo;
+
+        internal static void RecordAttackHover(ObjectBase shooter, ObjectBase target, Ammunition ammo)
+        {
+            _lastHoveredShooter = shooter;
+            _lastHoveredTarget = target;
+            _lastHoveredAmmo = ammo;
+        }
+
+        private static object GetActiveAttackingState()
+        {
+            object cur = Globals._mainGameViewModel?.StateManager?.CurrentState?.Value;
+            if (cur == null)
+                return null;
+
+            Type curType = cur.GetType();
+            if (_attackingStateType == null)
+            {
+                if (curType.Name != "AttackingState")
+                    return null;
+                _attackingStateType = curType;
+                _attackingTargetItemField = AccessTools.Field(curType, "_targetItem");
+                _attackingAmmoProp = AccessTools.Property(curType, "Ammo");
+                _attackingAmmoNameProp = AccessTools.Property(curType, "Ammunition");
+            }
+
+            return curType == _attackingStateType ? cur : null;
+        }
 
         private void Awake()
         {
@@ -34,6 +71,35 @@ namespace CecMod
             }
         }
 
+        private void SetMouseOver(bool over)
+        {
+            if (_isMouseOver == over)
+                return;
+
+            _isMouseOver = over;
+            if (!Singleton<MouseControlState>.InstanceExists())
+                return;
+
+            if (over)
+            {
+                Singleton<MouseControlState>.Instance.setMouseIsOverUIWindow(isOverUIWindow: true);
+            }
+            else if (!DM._isMouseOver)
+            {
+                Singleton<MouseControlState>.Instance.setMouseIsOverUIWindow(isOverUIWindow: false);
+            }
+        }
+
+        private void OnDisable()
+        {
+            SetMouseOver(false);
+        }
+
+        private void OnDestroy()
+        {
+            SetMouseOver(false);
+        }
+
         private void Update()
         {
             // Keep F10 hotkey enabled in developer mode
@@ -42,30 +108,37 @@ namespace CecMod
                 DM._allowDMHotkey = true;
             }
 
-            // Keyboard shortcut: Ctrl + F10 or F10 when DM is active
+            // Keyboard shortcut: Ctrl + F10 when DM is active
             if (Input.GetKeyDown(KeyCode.F10))
             {
                 if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
                 {
                     IsOpen = !IsOpen;
+                    if (!IsOpen)
+                        SetMouseOver(false);
                 }
+            }
+
+            if (!IsOpen && _isMouseOver)
+            {
+                SetMouseOver(false);
             }
         }
 
         private void OnGUI()
         {
-            if (!IsOpen) return;
-
-            // Handle mouse over to prevent map click-through
-            if (_windowRect.Contains(Event.current.mousePosition))
+            if (!IsOpen)
             {
-                if (Singleton<MouseControlState>.InstanceExists())
-                {
-                    Singleton<MouseControlState>.Instance.setMouseIsOverUIWindow(isOverUIWindow: true);
-                }
+                SetMouseOver(false);
+                return;
             }
 
-            _windowRect = GUI.Window(8899, _windowRect, DrawWindow, "CEC Datalink & Engagement Diagnostics (F10 Menu)");
+            _windowRect = GUI.Window(8899, _windowRect, DrawWindow, "CEC Datalink & Engagement Diagnostics (Ctrl+F10)");
+            _windowRect.x = Mathf.Clamp(_windowRect.x, 0f, Mathf.Max(0f, Screen.width - _windowRect.width));
+            _windowRect.y = Mathf.Clamp(_windowRect.y, 0f, Mathf.Max(0f, Screen.height - _windowRect.height));
+
+            bool over = IsOpen && _windowRect.Contains(Event.current.mousePosition);
+            SetMouseOver(over);
         }
 
         private void DrawWindow(int windowId)
@@ -74,6 +147,7 @@ namespace CecMod
             if (GUI.Button(new Rect(_windowRect.width - 25f, 3f, 20f, 20f), "X"))
             {
                 IsOpen = false;
+                SetMouseOver(false);
                 return;
             }
 
@@ -121,7 +195,7 @@ namespace CecMod
                 float distNm = CecCapability.HorizontalDistance(selected.transform.position, target.transform.position) * 0.036285132f;
                 float altFt = target.transform.position.y * 220.47266f;
                 float mastY = CecCapability.DatalinkMastHeight(selected, requireRadarOn: false);
-                float horizonNm = RadarCalculator.getRadarHorizon(Mathf.Max(mastY, 10f), target.VisibleAltitude, visual: false, 0f) * 0.036285132f;
+                float horizonNm = RadarCalculator.getRadarHorizon(Mathf.Max(mastY, CecCapability.MinDatalinkMastUnity), target.VisibleAltitude, visual: false, 0f) * 0.036285132f;
                 
                 bool spottedLocally = selected._spottedObjects != null && selected._spottedObjects.Contains(target);
                 bool localSight = CecCapability.HasLocalRadarSight(selected, target);
@@ -136,17 +210,20 @@ namespace CecMod
 
                 // 3. Best Cooperative Consort
                 GUILayout.Label("<color=cyan><b>=== COOPERATIVE CONSORT ===</b></color>");
-                ObjectBase consort = CecCapability.FindBestTrackingCooperator(selected, target);
+                ObjectBase consort = CecCapability.FindBestTrackingCooperator(selected, target, enforceReach: false);
                 if (consort != null)
                 {
                     var consortProf = CecCapability.GetPlatformProfile(consort);
                     var interaction = CecCapability.EvaluateInteraction(selected, consort);
-                    float consortDistNm = CecCapability.HorizontalDistance(selected.transform.position, consort.transform.position) * 0.036285132f;
-                    bool inReach = CecCapability.ArePlatformsInDatalinkReach(selected, consort, CecCapability.HorizontalDistance(selected.transform.position, consort.transform.position));
+                    float linkDist = CecCapability.HorizontalDistance(selected.transform.position, consort.transform.position);
+                    float consortDistNm = linkDist * 0.036285132f;
+                    bool inReach = CecCapability.ArePlatformsInDatalinkReach(selected, consort, linkDist);
+                    float maxReachNm = CecCapability.GetDatalinkMaxReachNm(selected, consort);
+                    string maxReachStr = float.IsPositiveInfinity(maxReachNm) ? "SATCOM (Unlimited)" : $"{maxReachNm:F1} nmi";
 
                     GUILayout.Label($"<b>Consort:</b> {consort.FullIDData()} ({consort._obp?._objectIniName})");
                     GUILayout.Label($"<b>Consort Tier:</b> {FormatTier(consortProf.CecTier)}  |  <b>Link:</b> {FormatDatalinks(consortProf.Datalinks)}");
-                    GUILayout.Label($"<b>Consort Range:</b> {consortDistNm:F1} nmi  |  <b>Horizon Reach:</b> {(inReach ? "<color=lime>IN REACH</color>" : "<color=red>OUT OF REACH</color>")}");
+                    GUILayout.Label($"<b>Consort Range:</b> {consortDistNm:F1} nmi (Max: {maxReachStr})  |  <b>Horizon Reach:</b> {(inReach ? "<color=lime>IN REACH</color>" : "<color=red>OUT OF REACH</color>")}");
                     GUILayout.Label($"<b>Interaction:</b> <color=lime>{interaction}</color>");
                 }
                 else
@@ -173,10 +250,16 @@ namespace CecMod
                 {
                     GUILayout.Label("<color=grey>No attack ammunition currently selected.</color>");
                 }
+
+                DrawWeaponStateSummary(selected, target, ammo);
             }
             else
             {
                 GUILayout.Label("<color=grey>Hover or select a contact in AttackingState to evaluate telemetry.</color>");
+                if (selected != null && FindDiagnosticWeaponSystem(selected, null, null) != null)
+                {
+                    DrawWeaponStateSummary(selected, null, GetCurrentAmmunition(selected));
+                }
             }
 
             GUILayout.Space(15f);
@@ -262,23 +345,52 @@ namespace CecMod
         {
             try
             {
-                var cur = Globals._mainGameViewModel?.StateManager?.CurrentState;
-                if (cur != null && cur.GetType().Name == "AttackingState")
+                object att = GetActiveAttackingState();
+                if (att != null)
                 {
-                    var targetProp = AccessTools.Property(cur.GetType(), "TargetItem") ?? AccessTools.Field(cur.GetType(), "_targetItem") as System.Reflection.MemberInfo;
-                    object targetItem = (targetProp is System.Reflection.PropertyInfo pi)
-                        ? pi.GetValue(cur)
-                        : (targetProp is System.Reflection.FieldInfo fi ? fi.GetValue(cur) : null);
-
-                    if (targetItem is SeapowerUI.MapUnitViewModel muvm && muvm.Unit?.BaseObject != null)
+                    object targetItem = _attackingTargetItemField?.GetValue(att);
+                    if (targetItem is SeapowerUI.MapUnitViewModel muvm
+                        && muvm.Unit?.BaseObject != null
+                        && !muvm.Unit.BaseObject.IsDestroyed)
                     {
                         return muvm.Unit.BaseObject;
+                    }
+
+                    if (_lastHoveredShooter == selected
+                        && _lastHoveredTarget != null
+                        && !_lastHoveredTarget.IsDestroyed)
+                    {
+                        return _lastHoveredTarget;
                     }
                 }
             }
             catch {}
 
-            if (selected?._ai?._objectToAttack != null) return selected._ai._objectToAttack;
+            var tasks = selected?._currentEngageTasks;
+            if (tasks != null)
+            {
+                for (int i = 0; i < tasks.Count; i++)
+                {
+                    ObjectBase t = tasks[i]?._targetObject;
+                    if (t != null && !t.IsDestroyed)
+                        return t;
+                }
+            }
+
+            var weaponSystems = selected?._obp?._weaponSystems;
+            if (weaponSystems != null)
+            {
+                for (int i = 0; i < weaponSystems.Count; i++)
+                {
+                    WeaponSystem ws = weaponSystems[i];
+                    if (ws != null && ws._executingEngageTask && ws._targetObject != null && !ws._targetObject.IsDestroyed)
+                        return ws._targetObject;
+                }
+            }
+
+            if (selected?._ai?._objectToAttack != null && !selected._ai._objectToAttack.IsDestroyed)
+                return selected._ai._objectToAttack;
+
             return null;
         }
 
@@ -287,19 +399,184 @@ namespace CecMod
             if (selected == null) return null;
             try
             {
-                var cur = Globals._mainGameViewModel?.StateManager?.CurrentState;
-                if (cur != null && cur.GetType().Name == "AttackingState")
+                object att = GetActiveAttackingState();
+                if (att != null)
                 {
-                    var ammoProp = AccessTools.Property(cur.GetType(), "Ammunition");
-                    string ammoName = ammoProp?.GetValue(cur) as string;
+                    if (_attackingAmmoProp?.GetValue(att) is Ammunition directAmmo && directAmmo._ap != null)
+                        return directAmmo;
+
+                    string ammoName = _attackingAmmoNameProp?.GetValue(att) as string;
                     if (!string.IsNullOrEmpty(ammoName))
                     {
-                        return selected.getAmmunitionByName(ammoName);
+                        Ammunition byName = selected.getAmmunitionByName(ammoName);
+                        if (byName != null)
+                            return byName;
                     }
+
+                    if (_lastHoveredShooter == selected && _lastHoveredAmmo != null)
+                        return _lastHoveredAmmo;
                 }
             }
             catch {}
+
+            var tasks = selected._currentEngageTasks;
+            if (tasks != null)
+            {
+                for (int i = 0; i < tasks.Count; i++)
+                {
+                    Ammunition taskAmmo = tasks[i]?._ammunition;
+                    if (taskAmmo?._ap != null)
+                        return taskAmmo;
+                }
+            }
+
+            var weaponSystems = selected._obp?._weaponSystems;
+            if (weaponSystems != null)
+            {
+                for (int i = 0; i < weaponSystems.Count; i++)
+                {
+                    WeaponSystem ws = weaponSystems[i];
+                    if (ws != null && ws._executingEngageTask && ws._ammoForEngage?._ap != null)
+                        return ws._ammoForEngage;
+                }
+            }
+
             return null;
+        }
+
+        private static void DrawWeaponStateSummary(ObjectBase shooter, ObjectBase target, Ammunition ammo)
+        {
+            WeaponSystem ws = FindDiagnosticWeaponSystem(shooter, target, ammo);
+            if (ws == null)
+                return;
+
+            string section = ws._sectionName ?? ws._name ?? "Weapon";
+            string sysName = ws._systemName ?? "?";
+            GUILayout.Label($"<b>Weapon State:</b> {section} ({sysName}) -> {FormatEngageState(ws)}  |  <b>Exec:</b> {(ws._executingEngageTask ? "YES" : "No")}  |  <b>Aligned:</b> {(ws._sensorPreLaunchAligned ? "YES" : "No")}");
+
+            if (target != null && !target.IsDestroyed)
+            {
+                try
+                {
+                    float relDeg = ComputeRelativeBearingDeg(shooter, target.transform.position);
+                    bool inArc = ws.targetIsInFiringArc(target.transform.position);
+                    string arcStr = FormatFiringArcs(ws._vwp);
+                    GUILayout.Label($"<b>Target Bearing:</b> {relDeg:+0.0;-0.0;0.0}°  |  <b>Firing Arc:</b> {arcStr} ({(inArc ? "<color=lime>IN ARC</color>" : "<color=red>OUT OF ARC</color>")})");
+                }
+                catch (Exception ex)
+                {
+                    CecPlugin.Log?.LogDebug($"[CEC] DrawWeaponStateSummary arc check failed: {ex.Message}");
+                }
+            }
+        }
+
+        private static WeaponSystem FindDiagnosticWeaponSystem(ObjectBase shooter, ObjectBase target, Ammunition ammo)
+        {
+            var weaponSystems = shooter?._obp?._weaponSystems;
+            if (weaponSystems == null)
+                return null;
+
+            WeaponSystem firstExecuting = null;
+            for (int i = 0; i < weaponSystems.Count; i++)
+            {
+                WeaponSystem ws = weaponSystems[i];
+                if (ws == null || !ws._executingEngageTask)
+                    continue;
+
+                if (target == null || ws._targetObject == target)
+                    return ws;
+
+                if (firstExecuting == null)
+                    firstExecuting = ws;
+            }
+
+            if (firstExecuting != null)
+                return firstExecuting;
+
+            string ammoName = ammo?._ap?._ammunitionFileName;
+            if (string.IsNullOrEmpty(ammoName))
+                return null;
+
+            for (int i = 0; i < weaponSystems.Count; i++)
+            {
+                WeaponSystem ws = weaponSystems[i];
+                if (ws == null || ws.Inoperable.Value || ws._isOffline || ws._isEmpty)
+                    continue;
+
+                if (ws.getLoadedAmmoCount(ammoName) > 0 || ws.getMagazineAmmoCount(ammoName) > 0)
+                    return ws;
+            }
+
+            return null;
+        }
+
+        private static float ComputeRelativeBearingDeg(ObjectBase shooter, Vector3 targetPos)
+        {
+            if (shooter.IsAirUnit)
+            {
+                Transform frame = shooter._obp?._visibleObjectsParent != null
+                    ? shooter._obp._visibleObjectsParent.transform
+                    : shooter.transform;
+                Vector3 local = frame.InverseTransformDirection(targetPos - frame.position);
+                return Mathf.Atan2(local.x, local.z) * Mathf.Rad2Deg;
+            }
+
+            Vector3 delta = targetPos - shooter.transform.position;
+            return Mathf.DeltaAngle(shooter.transform.eulerAngles.y, Mathf.Atan2(delta.x, delta.z) * Mathf.Rad2Deg);
+        }
+
+        private static string FormatFiringArcs(WeaponParameters vwp)
+        {
+            var arcs = vwp?._firingArcs;
+            if (arcs == null || arcs.Count == 0 || arcs[0] == Vector2.zero)
+                return "360°";
+
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < arcs.Count; i++)
+            {
+                if (arcs[i] == Vector2.zero)
+                    continue;
+                if (sb.Length > 0)
+                    sb.Append(", ");
+                sb.Append($"{arcs[i].x:0.#}°..{arcs[i].y:0.#}°");
+            }
+            return sb.Length > 0 ? sb.ToString() : "360°";
+        }
+
+        private static string FormatEngageState(WeaponSystem ws)
+        {
+            WeaponSystem.EngageState state = ws._engageState;
+            if (!ws._executingEngageTask)
+                return $"<color=grey>{state}</color>";
+
+            switch (state)
+            {
+                case WeaponSystem.EngageState.Launch:
+                case WeaponSystem.EngageState.LaunchingSalvo:
+                case WeaponSystem.EngageState.Firing:
+                    return $"<color=lime>{state}</color>";
+
+                case WeaponSystem.EngageState.TargetIsNotInFiringArcs:
+                case WeaponSystem.EngageState.TargetIsNotInVerticalArc:
+                case WeaponSystem.EngageState.TargetTooFar:
+                case WeaponSystem.EngageState.TargetTooFarToOpenSystem:
+                case WeaponSystem.EngageState.NoLOSToTarget:
+                case WeaponSystem.EngageState.TargetIsBeyondFCRHorizon:
+                case WeaponSystem.EngageState.TargetIsNotDetectableByFCR:
+                case WeaponSystem.EngageState.TargetIsNotDetectableBySearchSensor:
+                case WeaponSystem.EngageState.MissileCanNotReachTarget:
+                case WeaponSystem.EngageState.PrelaunchSensorAlignment:
+                case WeaponSystem.EngageState.PrelaunchSensorCheck:
+                case WeaponSystem.EngageState.LauncherTooLow:
+                case WeaponSystem.EngageState.LauncherTooHigh:
+                case WeaponSystem.EngageState.TargetTooClose:
+                case WeaponSystem.EngageState.EngagementNotAllowed:
+                case WeaponSystem.EngageState.NotInRearAspect:
+                    return $"<color=red>{state}</color>";
+
+                default:
+                    return $"<color=yellow>{state}</color>";
+            }
         }
 
         public static void LogToDm(string message, string color = "lime")
@@ -327,10 +604,37 @@ namespace CecMod
             if (target != null)
             {
                 bool localSight = CecCapability.HasLocalRadarSight(shooter, target);
-                var consort = CecCapability.FindBestTrackingCooperator(shooter, target);
+                var consort = CecCapability.FindBestTrackingCooperator(shooter, target, enforceReach: false);
                 sb.Append($" | Target: {target.FullIDData()} | LocalSight: {localSight}");
-                sb.Append($" | Consort: {(consort != null ? consort.FullIDData() : "None")}");
+                if (consort != null)
+                {
+                    bool inReach = CecCapability.ArePlatformsInDatalinkReach(
+                        shooter, consort, CecCapability.HorizontalDistance(shooter.transform.position, consort.transform.position));
+                    sb.Append($" | Consort: {consort.FullIDData()} (InReach: {inReach})");
+                }
+                else
+                {
+                    sb.Append(" | Consort: None");
+                }
             }
+
+            var wpnAmmo = GetCurrentAmmunition(shooter);
+            var ws = FindDiagnosticWeaponSystem(shooter, target, wpnAmmo);
+            if (ws != null)
+            {
+                sb.Append($" | Wpn: {ws._sectionName ?? ws._name}={ws._engageState} (Exec:{ws._executingEngageTask}, Aligned:{ws._sensorPreLaunchAligned}");
+                if (target != null && !target.IsDestroyed)
+                {
+                    try
+                    {
+                        bool inArc = ws.targetIsInFiringArc(target.transform.position);
+                        sb.Append($", InArc:{inArc}");
+                    }
+                    catch {}
+                }
+                sb.Append(")");
+            }
+
             LogToDm(sb.ToString(), "cyan");
         }
 
@@ -381,7 +685,7 @@ namespace CecMod
             {
                 // Sea Power MenuWindow grid layout:
                 // num = 15f; num2 = 35f; num3 = 15f; num4 = 7f; num5 = 92f; num6 = 4f;
-                // Row 7 (num4 = 7f) has Col 0 (Missile Test), Col 1 (Light AI), and Col 2 is empty!
+                // Row 7 (num4 = 7f) has Col 0 (Missile Test), Col 1 (Light AI Log), Col 2 (Map Labels), Col 3 (Airbases); Col 4 is empty.
                 float num = 15f;
                 float num2 = 35f;
                 float num3 = 15f;
@@ -389,7 +693,7 @@ namespace CecMod
                 float num5 = 92f;
                 float num6 = 4f;
 
-                Rect cecBtnRect = new Rect(2f * (num5 + num6) + num, num3 + num2 * num4, num5, 20f);
+                Rect cecBtnRect = new Rect(4f * (num5 + num6) + num, num3 + num2 * num4, num5, 20f);
                 if (GUI.Button(cecBtnRect, CecDebugOverlay.IsOpen ? "<color=lime>CEC Datalink</color>" : "CEC Datalink"))
                 {
                     CecDebugOverlay.IsOpen = !CecDebugOverlay.IsOpen;
@@ -402,20 +706,25 @@ namespace CecMod
         }
 
         [HarmonyPatch(typeof(DM), "DoToolbarWindow")]
-        [HarmonyPostfix]
-        public static void DoToolbarWindowPostfix()
+        [HarmonyPrefix]
+        public static void DoToolbarWindowPrefix()
         {
             try
             {
-                // Top developer toolbar: add a compact CEC toggle button at x=460f (after weapon status & allow control)
-                if (GUI.Button(new Rect(460f, 3f, 42f, 40f), CecDebugOverlay.IsOpen ? "<color=lime>CEC</color>" : "CEC"))
+                if (!DM._showToolbar)
+                    return;
+
+                // Top developer toolbar: place compact CEC toggle in the empty slot below the "All"/"UI" state label
+                // (after Obj at x=502..532, left of the control-buttons toggle at x=585), before GUI.DragWindow runs.
+                Rect btnRect = new Rect(535f, 25f, 46f, 20f);
+                if (GUI.Button(btnRect, CecDebugOverlay.IsOpen ? "<color=lime>CEC</color>" : "CEC"))
                 {
                     CecDebugOverlay.IsOpen = !CecDebugOverlay.IsOpen;
                 }
             }
             catch (Exception ex)
             {
-                CecPlugin.Log?.LogWarning($"[CEC] DoToolbarWindowPostfix error: {ex.Message}");
+                CecPlugin.Log?.LogWarning($"[CEC] DoToolbarWindowPrefix error: {ex.Message}");
             }
         }
     }

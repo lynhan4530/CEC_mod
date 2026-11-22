@@ -438,10 +438,7 @@ namespace CecMod
                 return false;
 
             float dist = HorizontalDistance(gw.transform.position, peer.transform.position);
-            float horizon = RadarCalculator.getRadarHorizon(
-                Mathf.Max(hGw, 20f), Mathf.Max(hPeer, 20f), visual: false, 0f);
-            float maxInstrumented = Mathf.Max(GetMaxDatalinkRange(gw), GetMaxDatalinkRange(peer));
-            return dist <= Mathf.Min(horizon, maxInstrumented);
+            return dist <= ComputeHorizonReachUnity(gw, peer, hGw, hPeer);
         }
 
         public static bool TaskforceHasActiveGateway(Taskforce tf, ObjectBase shooter = null, ObjectBase consort = null)
@@ -482,23 +479,49 @@ namespace CecMod
         // 3. RANGE & HORIZON PHYSICS
         // =========================================================================================
 
-        public static bool ArePlatformsInDatalinkReach(ObjectBase p1, ObjectBase p2, float linkDist)
+        internal const float MinDatalinkMastUnity = 0.30f; // ~20.2 m (~66 ft) in Unity Y units (1 unit = 67.200065 m)
+
+        private static float ComputeHorizonReachUnity(ObjectBase p1, ObjectBase p2, float h1, float h2)
         {
+            float horizon = RadarCalculator.getRadarHorizon(
+                Mathf.Max(h1, MinDatalinkMastUnity), Mathf.Max(h2, MinDatalinkMastUnity), visual: false, 0f);
+            float maxInstrumented = Mathf.Max(GetMaxDatalinkRange(p1), GetMaxDatalinkRange(p2));
+            return Mathf.Min(horizon, maxInstrumented);
+        }
+
+        private static float GetDatalinkMaxReachUnity(ObjectBase p1, ObjectBase p2)
+        {
+            if (p1 == null || p2 == null) return -1f;
             float h1 = DatalinkMastHeight(p1, requireRadarOn: false);
             float h2 = DatalinkMastHeight(p2, requireRadarOn: true);
-            if (h1 < 0f || h2 < 0f) return false;
+            if (h1 < 0f || h2 < 0f) return -1f;
 
             // Ship-to-ship datalinks have unlimited range (naval SATCOM)
-            if (p1 is Vessel && p2 is Vessel) return true;
+            if (p1 is Vessel && p2 is Vessel) return float.PositiveInfinity;
 
             // If SATCOM transceiver present, range is planetary
-            if (HasSatcomTransceiver(p1) || HasSatcomTransceiver(p2)) return true;
+            if (HasSatcomTransceiver(p1) || HasSatcomTransceiver(p2)) return float.PositiveInfinity;
 
-            float horizon = RadarCalculator.getRadarHorizon(
-                Mathf.Max(h1, 20f), Mathf.Max(h2, 20f), visual: false, 0f);
-            float maxInstrumented = Mathf.Max(GetMaxDatalinkRange(p1), GetMaxDatalinkRange(p2));
-            float maxReach = Mathf.Min(horizon, maxInstrumented);
+            return ComputeHorizonReachUnity(p1, p2, h1, h2);
+        }
+
+        public static bool ArePlatformsInDatalinkReach(ObjectBase p1, ObjectBase p2, float linkDist)
+        {
+            float maxReach = GetDatalinkMaxReachUnity(p1, p2);
+            if (maxReach < 0f) return false;
             return linkDist <= maxReach;
+        }
+
+        /// <summary>
+        /// Returns maximum cooperative datalink reach between <paramref name="p1"/> and
+        /// <paramref name="p2"/> in nautical miles (<c>+Infinity</c> for naval/platform SATCOM,
+        /// <c>0</c> if either platform lacks an eligible antenna).
+        /// </summary>
+        public static float GetDatalinkMaxReachNm(ObjectBase p1, ObjectBase p2)
+        {
+            float maxReach = GetDatalinkMaxReachUnity(p1, p2);
+            if (maxReach < 0f) return 0f;
+            return float.IsPositiveInfinity(maxReach) ? float.PositiveInfinity : maxReach * 0.036285132f;
         }
 
         public static float GetMaxDatalinkRange(ObjectBase p)
@@ -520,10 +543,11 @@ namespace CecMod
             {
                 for (int i = 0; i < systems.Count; i++)
                 {
-                    string sysName = systems[i]?._systemName;
+                    var sys = systems[i];
+                    if (sys == null || sys.IsDestroyed || sys.Inoperable.Value) continue;
+                    string sysName = sys._systemName;
                     if (!string.IsNullOrEmpty(sysName) &&
-                        (sysName.IndexOf("GPS", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                         sysName.IndexOf("SATCOM", StringComparison.OrdinalIgnoreCase) >= 0))
+                        sysName.IndexOf("SATCOM", StringComparison.OrdinalIgnoreCase) >= 0)
                         return true;
                 }
             }
@@ -539,6 +563,7 @@ namespace CecMod
             for (int i = 0; i < systems.Count; i++)
             {
                 if (!(systems[i] is SensorSystemRadar r)) continue;
+                if (IsNonAirSearchHelperSensor(r) || IsSyntheticDatalinkSensor(r)) continue;
                 if (r.Inoperable.Value || r._radar?._rp == null || r._mountObject == null) continue;
                 if (requireRadarOn && !r.IsOn.Value) continue;
 
@@ -546,13 +571,14 @@ namespace CecMod
                 if (r._radar._rp._hasDataLink || rProf.CecTier != CecTier.Tier0 || rProf.Datalinks != DatalinkStandard.None || rProf.IsSyntheticDatalink)
                 {
                     float y = r._mountObject.transform.position.y;
+                    if (platform != null && y - platform.transform.position.y > 5f) continue;
                     if (y > best) best = y;
                 }
             }
 
             if (best < 0f && platform != null && (platform is Aircraft || platform is Helicopter || platform is Vessel))
             {
-                best = Mathf.Max(platform.transform.position.y, 10f);
+                best = Mathf.Max(platform.transform.position.y, MinDatalinkMastUnity);
             }
 
             return best;
@@ -561,7 +587,7 @@ namespace CecMod
         public static bool InLinkHorizon(float nearAntennaY, float farAntennaY, float horizontalDist)
         {
             float horizon = RadarCalculator.getRadarHorizon(
-                Mathf.Max(nearAntennaY, 10f), Mathf.Max(farAntennaY, 10f), visual: false, 0f);
+                Mathf.Max(nearAntennaY, MinDatalinkMastUnity), Mathf.Max(farAntennaY, MinDatalinkMastUnity), visual: false, 0f);
             return horizontalDist <= horizon;
         }
 
@@ -1927,13 +1953,14 @@ namespace CecMod
         // 7. HOVER TELEMETRY & UI FORMATTERS
         // =========================================================================================
 
-        public static ObjectBase FindBestTrackingCooperator(ObjectBase shooter, ObjectBase target)
+        public static ObjectBase FindBestTrackingCooperator(ObjectBase shooter, ObjectBase target, bool enforceReach = true)
         {
             if (shooter == null || target == null || target.IsDestroyed) return null;
             var tf = shooter._taskforce ?? Globals._playerTaskforce;
             if (tf == null) return null;
 
             ObjectBase best = null;
+            bool bestInReach = false;
             int bestRank = -1;
             bool bestIsTier1 = false;
             float bestDistSq = float.MaxValue;
@@ -1944,10 +1971,12 @@ namespace CecMod
                 InteractionTier tier = EvaluateInteraction(shooter, coop);
                 if (tier == InteractionTier.Incompatible) return;
 
+                bool inReach = true;
                 if (!shooter.IsDestroyed)
                 {
                     float linkDist = HorizontalDistance(shooter.transform.position, coop.transform.position);
-                    if (!ArePlatformsInDatalinkReach(shooter, coop, linkDist)) return;
+                    inReach = ArePlatformsInDatalinkReach(shooter, coop, linkDist);
+                    if (enforceReach && !inReach) return;
                 }
 
                 if (CooperatorSeesTarget(coop, target))
@@ -1956,12 +1985,14 @@ namespace CecMod
                     bool isTier1 = GetPlatformProfile(coop).CecTier == CecTier.Tier1;
                     float distSq = (coop.transform.position - target.transform.position).sqrMagnitude;
 
-                    bool isBetter = rank > bestRank
-                        || (rank == bestRank && isTier1 && !bestIsTier1)
-                        || (rank == bestRank && isTier1 == bestIsTier1 && distSq < bestDistSq);
+                    bool isBetter = (inReach && !bestInReach)
+                        || (inReach == bestInReach && (rank > bestRank
+                            || (rank == bestRank && isTier1 && !bestIsTier1)
+                            || (rank == bestRank && isTier1 == bestIsTier1 && distSq < bestDistSq)));
 
                     if (isBetter)
                     {
+                        bestInReach = inReach;
                         bestRank = rank;
                         bestIsTier1 = isTier1;
                         bestDistSq = distSq;

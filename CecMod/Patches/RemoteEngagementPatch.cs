@@ -53,6 +53,8 @@ namespace CecMod.Patches
                 if (effectiveAmmo?._ap == null)
                     return;
 
+                CecDebugOverlay.RecordAttackHover(shooter, target, effectiveAmmo);
+
                 bool localSight = CecCapability.HasLocalRadarSight(shooter, target);
                 if (localSight)
                     return;
