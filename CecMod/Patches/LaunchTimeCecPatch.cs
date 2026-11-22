@@ -666,6 +666,7 @@ namespace CecMod.Patches
                 bool isSarh = CecCapability.IsSarhMissile(m._ap);
                 bool hasMccDatalink = m._ap._midCourseCorrection != null && m._ap._midCourseCorrection.IsDatalink;
                 bool currentHostInEmcon = current?._baseObject != null && CecCapability.IsPlatformInAirRadarEmcon(current._baseObject);
+                bool currentIsNonAirHelper = target.isAirTarget() && CecCapability.IsNonAirSearchHelperSensor(current);
 
                 if (EgBridge.IsActive
                     && current != null
@@ -674,6 +675,7 @@ namespace CecMod.Patches
                     && current.IsOn.Value
                     && !localGuiderDisallowed
                     && !currentHostInEmcon
+                    && !currentIsNonAirHelper
                     && EgBridge.IsDatalinkCarrier(current)
                     && current.CanGuideAmmo(m._ap)
                     && CecCapability.RadarCanReachMissile(current, m))
@@ -698,6 +700,7 @@ namespace CecMod.Patches
                     && current.IsOn.Value
                     && !localGuiderDisallowed
                     && !currentHostInEmcon
+                    && !currentIsNonAirHelper
                     && current.CanGuideAmmo(m._ap)
                     && CecCapability.RadarCanSee(current, target)
                     && (!CecCapability.IsPureCwDishIlluminator(current._systemName)
@@ -730,6 +733,8 @@ namespace CecMod.Patches
                 foreach (SensorSystem s in m._weaponSystem._vwp._associatedSensors)
                 {
                     if (!(s is SensorSystemRadar candidate) || candidate == current)
+                        continue;
+                    if (target.isAirTarget() && CecCapability.IsNonAirSearchHelperSensor(candidate))
                         continue;
                     if ((launcherInEmcon || localGuiderDisallowed) && candidate._baseObject == launcher)
                         continue;

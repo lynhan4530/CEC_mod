@@ -5,6 +5,12 @@ All notable changes to **Sea Power CEC (`CecMod`)** are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Fixed stealth `MADL` / `IFDL` intra-flight isolation, helper-sensor leaks, and missing Block III Super Hornet entries (`TC-13`):
+  - Excluded stealth `MADL` / `IFDL` platforms (`F-35` / `F-22`) from the `Link 16 <-> Link 16` Tier 1 upgrade in `CecCapability.ResolveBestDatalinkPair`, returned `Tier1_IntraFlightOnly` for same-flight pairs, and bridged cross-flight `MADL` / `IFDL` pairs to `Tier1_FullCec` (`(GW)`) when an active gateway is present.
+  - Replaced stale `_flightGroupLeaders` caching in `CecCapability.IsSameFlightGroup` with live `Formation` / `ActiveFormationLeader` checks.
+  - Added `CecCapability.IsNonAirSearchHelperSensor` (`GPS_Receiver`, `GPS_Link`, `GuidancePod`) alongside EMCON and synthetic-datalink guards across `HasLocalRadarSight`, `CooperatorSeesTarget`, `RefreshConsortRadars` (including pruning EMCON, downgraded, or out-of-reach injected sensors), and `LaunchTimeCecPatch.ActivateNonLaserGuidanceSystem_Postfix`.
+  - Updated `CecCapability.FindBestTrackingCooperator` to prioritize interaction rank and Tier 1 capability before distance.
+  - Added `usn_fa-18e_blk3` (`F/A-18E Block III`) and `usn_fa-18f_blk3c` (`F/A-18F Block III (CFT)`) Tier 1 gateway entries to `data/cec_tables/04_Aircraft.csv` and regenerated `CecMod/CecDataTables.g.cs`.
 - Fixed SARH Forward Pass shooters breaking EMCON or keeping local guidance (`TC-06`):
   - Added `[ThreadStatic] _emconProtectedUnit` and `SensorSystem.Enable` (`Priority.First`) guards across `ObjectBase.HandleEngageTasks`, `WeaponSystemLauncher.OnUpdate`, `WeaponSystem.HasFreeGuidingSensors`, `WeaponSystem.hasFreeWeaponChannel`, and `Priority.First` `activatePreLaunchGuidance` (ahead of `ExtendedGuidance.Hooks.RemotePrelaunch`), blocking automatic `turnOffAfterEngage` local radar wake-ups on EMCON CEC shooters.
   - Updated `LaunchTimeCecPatch.ActivateNonLaserGuidanceSystem_Postfix` and `EnsureRemotePreLaunchTargetAssigned` to check `IsPlatformInAirRadarEmcon` so EMCON shooters never retain or slew always-ON local `Targeting` / `DatalinkCarrier` sensors (`eu_AEGIS_BL9`, `SPG-62`), ranking `DatalinkCarrier` ahead of terminal CW illuminators under `ExtendedGuidance` and syncing `EgBridge.SetActiveEgIlluminator` only for valid illuminators.

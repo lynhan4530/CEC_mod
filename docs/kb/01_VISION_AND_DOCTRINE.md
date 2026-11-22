@@ -38,13 +38,13 @@ Platforms often carry multiple datalinks (stored as a bitmask). For any `(shoote
 - Rank order: `SatcomGlobal (6)` > `Tier1_FullCec (5)` > `Tier1_IntraFlightOnly (4)` > `Tier2_MidcourseRescue (3)` > `Tier2_CueOnly (2)` > `Tier3_TrackRelay (1)` > `Incompatible (0)`.
 - **Verified Matrix & Runtime Upgrades**:
   - `Usg2Cec` / `Ttnt` <-> `Link16` is `Tier2_MidcourseRescue` in `02_Datalink_Compatibility_Matrix.csv` (updated in v0.4.1).
-  - **Tier 1 Link 16 Upgrade**: When `raw == Tier2_MidcourseRescue` over `Link16 <-> Link16` and **both** `shooter` and `consort` have `CecTier == CecTier.Tier1` (e.g., GlobalEye, Eurofighter, Rafale Late, JAS-39, KF-21), `ResolveBestDatalinkPair` upgrades the pair to `Tier1_FullCec`.
+  - **Tier 1 Link 16 Upgrade**: When `raw == Tier2_MidcourseRescue` over `Link16 <-> Link16` and **both** `shooter` and `consort` have `CecTier == CecTier.Tier1` (e.g., GlobalEye, Eurofighter, Rafale Late, JAS-39, KF-21), `ResolveBestDatalinkPair` upgrades the pair to `Tier1_FullCec` **only when neither platform carries stealth directional links (`Madl` / `Ifdl`)**, preventing `F-35` / `F-22` pairs from bypassing intra-flight isolation or gateway rules via Link 16.
   - **Stealth Intra-Flight Isolation (`Tier1_IntraFlightOnly`)**:
     - `Ifdl` (F-22) and `Madl` (F-35) share Tier 1 targeting only within the same flight group (`IsSameFlightGroup`).
-    - Flight leadership is cached in `_flightGroupLeaders` (`ConditionalWeakTable<Aircraft, ObjectBase>`) using `ac.ActiveFormationLeader ?? ac.Formation?.LeaderStation?.UnitObject ?? ac`, preserving stealth flight links even when the game clears `Formation` during independent/evasive maneuvers.
+    - `IsSameFlightGroup` inspects live `Formation` (`!_isDisbanded`) and `ActiveFormationLeader` / `LeaderStation` directly (without stale caching), returns `InteractionTier.Tier1_IntraFlightOnly` for same-flight pairs, and bridges cross-flight `Madl <-> Madl` / `Ifdl <-> Ifdl` pairs to `Tier1_FullCec` (`MADL (GW)` / `IFDL (GW)`) when an active gateway is present (otherwise `Incompatible`, leaving only Link 16 `Tier2_MidcourseRescue` cueing).
     - `Tks2Apd518` (`Tier1_IntraFlightOnly` between fighters) upgrades to `Tier1_FullCec` across flight groups when either platform carries an AWACS radar (`HasAwacsRadar`, e.g., A-50U).
   - **Gateway Bridging (`GatewayRequired`)**:
-    - When `raw == GatewayRequired` (e.g., `Madl` <-> `Usg2Cec` / `Ttnt` / `Link16`, or `Ifdl` <-> `Link16`), it upgrades to `Tier1_FullCec` if `TaskforceHasActiveGateway(shooter._taskforce)` is true (e.g., `usn_e-2d`, `fr_e2d`, `usn_fa-18f_blk3`, or any platform with `"gateway"` in CSV fields / `"e-2d"` in display name); otherwise it degrades to `Tier2_CueOnly`.
+    - When `raw == GatewayRequired` (e.g., `Madl` <-> `Usg2Cec` / `Ttnt` / `Link16`, or `Ifdl` <-> `Link16`), it upgrades to `Tier1_FullCec` if `TaskforceHasActiveGateway(shooter._taskforce)` is true (e.g., `usn_e-2d`, `fr_e2d`, `usn_fa-18f_blk3`, `usn_fa-18e_blk3`, `usn_fa-18f_blk3c`, or any platform with `"gateway"` in CSV fields / `"e-2d"` in display name); otherwise it degrades to `Tier2_CueOnly`.
 
 ### Doctrinal Networks (`CecCapability.CecNetwork`)
 Used to group sensors and platforms into Western (`WesternJoint`), PLA (`PlaJoint`), and Russian (`RuJoint`) architectural families when checking network presence.

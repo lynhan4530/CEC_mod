@@ -613,6 +613,8 @@ namespace CecMod
             { "usn_fa-18e", new PlatformProfile("usn_fa-18e", "F/A-18E", CecTier.Tier1, DatalinkStandard.Ttnt | DatalinkStandard.Link16, SarhIllumFamily.None, false) },
             { "usn_fa-18f", new PlatformProfile("usn_fa-18f", "F/A-18F", CecTier.Tier1, DatalinkStandard.Ttnt | DatalinkStandard.Link16, SarhIllumFamily.None, false) },
             { "usn_fa-18f_blk3", new PlatformProfile("usn_fa-18f_blk3", "F/A-18F Block III", CecTier.Tier1, DatalinkStandard.Usg2Cec | DatalinkStandard.Ttnt | DatalinkStandard.Link16, SarhIllumFamily.None, true) },
+            { "usn_fa-18e_blk3", new PlatformProfile("usn_fa-18e_blk3", "F/A-18E Block III", CecTier.Tier1, DatalinkStandard.Usg2Cec | DatalinkStandard.Ttnt | DatalinkStandard.Link16, SarhIllumFamily.None, true) },
+            { "usn_fa-18f_blk3c", new PlatformProfile("usn_fa-18f_blk3c", "F/A-18F Block III (CFT)", CecTier.Tier1, DatalinkStandard.Usg2Cec | DatalinkStandard.Ttnt | DatalinkStandard.Link16, SarhIllumFamily.None, true) },
             { "plan_z-18fa", new PlatformProfile("plan_z-18fa", "Z-18FA", CecTier.Tier2, DatalinkStandard.Jsidls, SarhIllumFamily.None, false) },
             { "plan_z-18ja", new PlatformProfile("plan_z-18ja", "Z-18JA", CecTier.Tier2, DatalinkStandard.Jsidls, SarhIllumFamily.None, false) },
             { "plan_z-20f", new PlatformProfile("plan_z-20f", "Z-20F", CecTier.Tier2, DatalinkStandard.Jsidls, SarhIllumFamily.None, false) },

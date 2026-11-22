@@ -16,7 +16,7 @@
 | [TC-10](#tc-10--tier-2-link-16-mid-course-rescue-shoot--crankcold) | C | Tier 2 Link 16 Mid-Course Rescue (Shoot & Crank/Cold) | `PASS` | User confirmed passed in-game. |
 | [TC-11](#tc-11--tier-3-cold-war-ship--missile-isolation) | C | Tier 3 Cold War Ship / Missile Isolation | `UNSURE` | After turning launcher radar OFF, illuminator remained ON (suspected `ExtendedGuidance` behavior; verify later). |
 | [TC-12](#tc-12--tier-0-standalone--ir-munitions) | C | Tier 0 Standalone / IR Munitions | `PASS` | User confirmed passed in-game. |
-| [TC-13](#tc-13--stealth-intra-flight-isolation-madlifdl) | D | Stealth Intra-Flight Isolation (`MADL` / `IFDL`) | `FAIL` | F-35 CEC works across all F-35s regardless of flight group (no intra-flight isolation); `F/A-18F` (EMCON) + `F-35` (radar ON) got stuck in `Moving to engage` without firing. |
+| [TC-13](#tc-13--stealth-intra-flight-isolation-madlifdl) | D | Stealth Intra-Flight Isolation (`MADL` / `IFDL`) | `PASS` | User confirmed passed in-game (same-flight F-35 fires via `[MADL | Tier 1]`; separate-flight F-35 and non-gateway `F/A-18F` Block II blocked with yellow Link 16 cue; `F/A-18F Block III` fires as gateway). |
 | [TC-14](#tc-14--gateway-bridging-e-2d--fa-18f-blk-iii) | D | Gateway Bridging (`E-2D` / `F/A-18F Blk III`) | `FAIL` | Can fire with gateway when AWACS radar is OFF, but UI hover needs update (shows `[Link 16 | Tier 1]` instead of `MADL` / `(GW)` gateway indicator). |
 | [TC-15](#tc-15--datalink-horizon--reach-limits--ship-satcom) | D | Datalink Horizon & Reach Limits + Ship SATCOM | `Pending` | — |
 | [TC-16](#tc-16--pitbull-terminal-localterminalonlytrue-clean-log) | E | Pitbull Terminal (`LocalTerminalOnly=True`) Clean Log | `PASS` | User confirmed passed in-game. |
@@ -189,7 +189,7 @@
 ## Group D — Stealth Isolation, Gateways & Datalink Reach Physics
 
 ### TC-13 — Stealth Intra-Flight Isolation (`MADL`/`IFDL`)
-- **Status**: `FAIL`
+- **Status**: `PASS`
 - **Setup**: Flight 1: 2x `F-35` (lead radar ON, wingman EMCON) + Flight 2: 1x `F-35` (separate flight, EMCON). **No gateway** (`E-2D`) present.
 - **Steps**:
   1. Order Flight 1 wingman (EMCON) to shoot using Flight 1 lead's track.
@@ -198,9 +198,8 @@
   - **Same flight** wingman **succeeds** (`Tier1_IntraFlightOnly`).
   - **Separate flight** `F-35` is **degraded/blocked** (`GatewayRequired` → `Tier2_CueOnly`) without a gateway.
 - **Result / Notes**:
-  - Tested on `2026-11-22`:
-    - F-35 CEC worked across **all** F-35s regardless of flight group (separate flight was not isolated).
-    - Tested `F/A-18F` (EMCON) + `F-35` (radar ON): `F/A-18F` did not fire its weapon and remained stuck in EMCON (`Moving to engage Air Contact 7001 with AIM-120D3`).
+  - **Re-test after fix (`2026-11-22`)**: User confirmed all tests passed in-game (same-flight `F-35` wingman fires in EMCON via `[MADL | Tier 1]`; separate-flight `F-35` and non-gateway `F/A-18F` Block II are blocked with yellow Link 16 cue; `F/A-18F Block III` fires in EMCON as its own gateway).
+  - *Previous pre-fix run (`2026-11-22`)*: F-35 CEC worked across all F-35s regardless of flight group due to `Link 16` Tier 1 upgrade bypass, and `F/A-18F` (Block II, non-gateway) remained blocked without a gateway.
 
 ---
 

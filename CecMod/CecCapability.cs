@@ -45,9 +45,6 @@ namespace CecMod
         private static readonly ConditionalWeakTable<WeaponSystem, HashSet<string>> _injectedExternalNames =
             new ConditionalWeakTable<WeaponSystem, HashSet<string>>();
 
-        private static readonly ConditionalWeakTable<Aircraft, ObjectBase> _flightGroupLeaders =
-            new ConditionalWeakTable<Aircraft, ObjectBase>();
-
         // =========================================================================================
         // 1. PROFILE RESOLVERS & LOOKUPS ($O(1)$ from CecDataTables)
         // =========================================================================================
@@ -117,6 +114,20 @@ namespace CecMod
             if (CecDataTables.Radars.TryGetValue(key, out var r))
                 return r.IsSyntheticDatalink;
             return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="s"/> is a non-radar GPS receiver or air-to-ground guidance pod
+        /// (e.g. <c>GPS_Receiver</c>, <c>GPS_Link</c>, <c>GuidancePodNoAlignment</c>) that stays ON
+        /// during EMCON and must never fake organic air-radar sight or act as a remote air-to-air guider.
+        /// </summary>
+        public static bool IsNonAirSearchHelperSensor(SensorSystem s)
+        {
+            if (s == null || string.IsNullOrEmpty(s._systemName)) return false;
+            string name = s._systemName;
+            return name.IndexOf("GPS_Receiver", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("GPS_Link", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("GuidancePod", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         public static bool IsAwacsRadar(SensorSystem s)
@@ -298,6 +309,7 @@ namespace CecMod
             bool sameFlight = IsSameFlightGroup(shooter, consort);
             bool hasAwacs = HasAwacsRadar(shooter) || HasAwacsRadar(consort);
             bool hasGateway = TaskforceHasActiveGateway(shooter._taskforce);
+            bool involvesStealthLink = ((p1.Datalinks | p2.Datalinks) & (DatalinkStandard.Madl | DatalinkStandard.Ifdl)) != 0;
 
             InteractionTier bestTier = InteractionTier.Incompatible;
             int bestRank = 0;
@@ -314,9 +326,28 @@ namespace CecMod
                     {
                         // TKS-2 / APD-518 links Russian fighters with A-50U AWACS across flight groups
                         bool tksAwacsLink = s1 == DatalinkStandard.Tks2Apd518 && s2 == DatalinkStandard.Tks2Apd518 && hasAwacs;
-                        effective = (sameFlight || tksAwacsLink)
-                            ? InteractionTier.Tier1_FullCec
-                            : InteractionTier.Incompatible;
+                        bool stealthGatewayBridge = !sameFlight
+                            && hasGateway
+                            && (s1 == DatalinkStandard.Madl || s1 == DatalinkStandard.Ifdl)
+                            && s1 == s2;
+
+                        if (tksAwacsLink)
+                        {
+                            effective = InteractionTier.Tier1_FullCec;
+                        }
+                        else if (sameFlight)
+                        {
+                            effective = InteractionTier.Tier1_IntraFlightOnly;
+                        }
+                        else if (stealthGatewayBridge)
+                        {
+                            effective = InteractionTier.Tier1_FullCec;
+                            pairUsedGw = true;
+                        }
+                        else
+                        {
+                            effective = InteractionTier.Incompatible;
+                        }
                     }
                     else if (raw == InteractionTier.GatewayRequired)
                     {
@@ -332,9 +363,11 @@ namespace CecMod
                     }
                     else if (raw == InteractionTier.Tier2_MidcourseRescue
                              && s1 == DatalinkStandard.Link16 && s2 == DatalinkStandard.Link16
-                             && p1.CecTier == CecTier.Tier1 && p2.CecTier == CecTier.Tier1)
+                             && p1.CecTier == CecTier.Tier1 && p2.CecTier == CecTier.Tier1
+                             && !involvesStealthLink)
                     {
                         // Tier 1 Link 16 platforms (e.g. GlobalEye, Eurofighter, Rafale Late, JAS-39, KF-21)
+                        // Stealth MADL/IFDL platforms (F-35/F-22) must NOT bypass intra-flight isolation or gateway rules via Link 16.
                         effective = InteractionTier.Tier1_FullCec;
                     }
 
@@ -371,20 +404,19 @@ namespace CecMod
             if (a1 == a2) return true;
             if (!(a1 is Aircraft ac1) || !(a2 is Aircraft ac2)) return false;
 
-            ObjectBase leader1 = GetFlightLeader(ac1);
-            ObjectBase leader2 = GetFlightLeader(ac2);
-            return leader1 != null && leader1 == leader2;
-        }
+            if (ac1.Formation != null && !ac1.Formation._isDisbanded && ac1.Formation == ac2.Formation)
+                return true;
 
-        private static ObjectBase GetFlightLeader(Aircraft ac)
-        {
-            if (_flightGroupLeaders.TryGetValue(ac, out var leader) && leader != null && !leader.IsDestroyed)
-                return leader;
+            ObjectBase leader1 = ac1.ActiveFormationLeader ?? ac1.Formation?.LeaderStation?.UnitObject;
+            ObjectBase leader2 = ac2.ActiveFormationLeader ?? ac2.Formation?.LeaderStation?.UnitObject;
 
-            leader = ac.ActiveFormationLeader ?? ac.Formation?.LeaderStation?.UnitObject ?? ac;
-            _flightGroupLeaders.Remove(ac);
-            _flightGroupLeaders.Add(ac, leader);
-            return leader;
+            if (leader1 != null && !leader1.IsDestroyed && (leader1 == ac2 || (leader2 != null && !leader2.IsDestroyed && leader1 == leader2)))
+                return true;
+
+            if (leader2 != null && !leader2.IsDestroyed && leader2 == ac1)
+                return true;
+
+            return false;
         }
 
         public static bool TaskforceHasActiveGateway(Taskforce tf)
@@ -601,7 +633,7 @@ namespace CecMod
             for (int i = 0; i < systems.Count; i++)
             {
                 if (!(systems[i] is SensorSystemRadar r)) continue;
-                if (!UsableGuidanceRadar(r) || IsSyntheticDatalinkSensor(r)) continue;
+                if (!UsableGuidanceRadar(r) || IsSyntheticDatalinkSensor(r) || IsNonAirSearchHelperSensor(r)) continue;
                 if (target.isAirTarget() && !r.CanSeeAirTargets) continue;
                 if (!RadarCanSee(r, target)) continue;
 
@@ -1079,7 +1111,30 @@ namespace CecMod
                 SensorSystem s = associated[i];
                 if (injected.Contains(s))
                 {
-                    if (s == null || s._baseObject == null || s._baseObject.IsDestroyed || s.Inoperable.Value)
+                    bool remove = s == null
+                        || s._baseObject == null
+                        || s._baseObject.IsDestroyed
+                        || s.Inoperable.Value
+                        || IsPlatformInAirRadarEmcon(s._baseObject);
+
+                    if (!remove)
+                    {
+                        InteractionTier tier = EvaluateInteraction(launcher, s._baseObject);
+                        if (tier != InteractionTier.Tier1_FullCec
+                            && tier != InteractionTier.SatcomGlobal
+                            && tier != InteractionTier.Tier1_IntraFlightOnly)
+                        {
+                            remove = true;
+                        }
+                        else
+                        {
+                            float linkDist = HorizontalDistance(launcher.transform.position, s._baseObject.transform.position);
+                            if (!ArePlatformsInDatalinkReach(launcher, s._baseObject, linkDist))
+                                remove = true;
+                        }
+                    }
+
+                    if (remove)
                     {
                         associated.RemoveAt(i);
                         injected.Remove(s);
@@ -1097,6 +1152,7 @@ namespace CecMod
             void TryInject(ObjectBase cooperator)
             {
                 if (cooperator == null || cooperator == launcher || cooperator.IsDestroyed) return;
+                if (IsPlatformInAirRadarEmcon(cooperator)) return;
 
                 InteractionTier interaction = EvaluateInteraction(launcher, cooperator);
                 if (interaction != InteractionTier.Tier1_FullCec &&
@@ -1158,6 +1214,7 @@ namespace CecMod
 
                     if (needsMidCourse && !IsPureCwDishIlluminator(r._systemName))
                     {
+                        if (IsNonAirSearchHelperSensor(r)) continue;
                         if (IsAwacsRadar(r) || GetRadarProfile(r).IsMfr)
                             EnsureMidCourseChannels(r);
 
@@ -1560,6 +1617,8 @@ namespace CecMod
         {
             if (cooperator?._obp?._sensorSystems == null || target == null || target.IsDestroyed)
                 return false;
+            if (target.isAirTarget() && IsPlatformInAirRadarEmcon(cooperator))
+                return false;
 
             var systems = cooperator._obp._sensorSystems;
             float distToTarget = HorizontalDistance(cooperator.transform.position, target.transform.position);
@@ -1573,6 +1632,7 @@ namespace CecMod
             for (int i = 0; i < systems.Count; i++)
             {
                 if (!(systems[i] is SensorSystemRadar r)) continue;
+                if (IsSyntheticDatalinkSensor(r) || IsNonAirSearchHelperSensor(r)) continue;
                 if (r._type != SensorSystemRadar.RadarType.Search
                     && r._type != SensorSystemRadar.RadarType.DirectedSearch
                     && r._type != SensorSystemRadar.RadarType.Targeting)
@@ -1609,6 +1669,8 @@ namespace CecMod
             if (tf == null) return null;
 
             ObjectBase best = null;
+            int bestRank = -1;
+            bool bestIsTier1 = false;
             float bestDistSq = float.MaxValue;
 
             void Check(ObjectBase coop)
@@ -1625,9 +1687,18 @@ namespace CecMod
 
                 if (CooperatorSeesTarget(coop, target))
                 {
+                    int rank = GetEffectiveInteractionRank(tier);
+                    bool isTier1 = GetPlatformProfile(coop).CecTier == CecTier.Tier1;
                     float distSq = (coop.transform.position - target.transform.position).sqrMagnitude;
-                    if (distSq < bestDistSq)
+
+                    bool isBetter = rank > bestRank
+                        || (rank == bestRank && isTier1 && !bestIsTier1)
+                        || (rank == bestRank && isTier1 == bestIsTier1 && distSq < bestDistSq);
+
+                    if (isBetter)
                     {
+                        bestRank = rank;
+                        bestIsTier1 = isTier1;
                         bestDistSq = distSq;
                         best = coop;
                     }
